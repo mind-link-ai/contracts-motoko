@@ -1,183 +1,155 @@
-import Time "mo:base/Time";
+import Error "mo:base/Error";
+import Int "mo:base/Int";
+import Nat "mo:base/Nat";
 import Principal "mo:base/Principal";
 import Text "mo:base/Text";
-import Nat "mo:base/Nat";
-import Debug "mo:base/Debug";
+import Time "mo:base/Time";
 
-actor GuaranteeContract {
-  type TransactionStatus = {
+actor Guarantee {
+  type Status = {
     #New;
     #Staking;
     #Staked;
     #Completed;
+    #Timeout;
     #Disputed;
     #Resolved;
-    #Failed;
-    #Ended;
   };
 
   type ParticipantInfo = {
-    solanaAddress : Text;
-    requiredAmount : Nat;
-    vaultAddress : ?Text;
-    stakeTimestamp : ?Int;
-    stakeSignature : ?Text;
-    withdrawablePercentage : Nat;
+    participantSolanaAddress : Text;
+    shouldStakeUSDCAmount : Nat;
+    stakeVaultSolanaAddress : ?Text;
+    stakeTimestamp : ?Nat;
+    disputeTimestamp : ?Nat;
+    withdrawablePercentage : ?Nat;
   };
 
   type TransactionInfo = {
+    status : Status;
+    creationTimestamp : Nat;
+    stakingPhaseDuration : Nat;
+    tradingPhaseDuration : Nat;
     participantA : ParticipantInfo;
     participantB : ParticipantInfo;
-    stakingWindowDuration : Int;
-    tradingWindowDuration : Int;
-    verifierAddress : Text;
-    arbitratorAddress : Text;
-    creationTimestamp : Int;
-    stakingCompletedTimestamp : ?Int;
-    status : TransactionStatus;
+    verifierSolanaAddress : Text;
+    arbitratorSolanaAddress : Text;
     comments : Text;
+    stakingPhaseCompletedTimestamp : ?Nat;
+    tradingPhaseCompletedTimestamp : ?Nat;
+    timeoutTimestamp : ?Nat;
+    resolvedTimestamp : ?Nat;
   };
 
   stable var transaction : ?TransactionInfo = null;
 
   public shared func initialize(
+    stakingPhaseDuration : Nat,
+    tradingPhaseDuration : Nat,
     participantASolanaAddress : Text,
     participantBSolanaAddress : Text,
-    participantARequiredAmount : Nat,
-    participantBRequiredAmount : Nat,
-    stakingWindowDuration : Int,
-    tradingWindowDuration : Int,
-    verifierAddress : Text,
-    arbitratorAddress : Text,
+    participantAShouldStakeUSDCAmount : Nat,
+    participantBShouldStakeUSDCAmount : Nat,
+    verifierSolanaAddress : Text,
+    arbitratorSolanaAddress : Text,
     comments : Text,
   ) : async () {
     switch (transaction) {
       case (null) {
         let participantA : ParticipantInfo = {
-          solanaAddress = participantASolanaAddress;
-          requiredAmount = participantARequiredAmount;
-          vaultAddress = null;
+          participantSolanaAddress = participantASolanaAddress;
+          shouldStakeUSDCAmount = participantAShouldStakeUSDCAmount;
+          stakeVaultSolanaAddress = null;
           stakeTimestamp = null;
-          stakeSignature = null;
-          withdrawablePercentage = 0;
+          disputeTimestamp = null;
+          withdrawablePercentage = ?0;
         };
 
         let participantB : ParticipantInfo = {
-          solanaAddress = participantBSolanaAddress;
-          requiredAmount = participantBRequiredAmount;
-          vaultAddress = null;
+          participantSolanaAddress = participantBSolanaAddress;
+          shouldStakeUSDCAmount = participantBShouldStakeUSDCAmount;
+          stakeVaultSolanaAddress = null;
           stakeTimestamp = null;
-          stakeSignature = null;
-          withdrawablePercentage = 0;
+          disputeTimestamp = null;
+          withdrawablePercentage = ?0;
         };
 
         transaction := ?{
+          status = #New;
+          creationTimestamp = Int.abs(Time.now()) / 1_000_000_000;
+          stakingPhaseDuration = stakingPhaseDuration;
+          tradingPhaseDuration = tradingPhaseDuration;
           participantA = participantA;
           participantB = participantB;
-          stakingWindowDuration = stakingWindowDuration;
-          tradingWindowDuration = tradingWindowDuration;
-          verifierAddress = verifierAddress;
-          arbitratorAddress = arbitratorAddress;
-          creationTimestamp = Time.now();
-          stakingCompletedTimestamp = null;
-          status = #New;
+          verifierSolanaAddress = verifierSolanaAddress;
+          arbitratorSolanaAddress = arbitratorSolanaAddress;
           comments = comments;
+          stakingPhaseCompletedTimestamp = null;
+          tradingPhaseCompletedTimestamp = null;
+          timeoutTimestamp = null;
+          resolvedTimestamp = null;
         };
       };
       case (_) {
-        Debug.print("Contract already initialized");
+        throw Error.reject("Already initialized");
       };
     };
   };
 
-  public shared func stake(
+  public shared func confirmStakingComplete(
     participantSolanaAddress : Text,
-    vaultAddress : Text,
-    stakeTimestamp : Int,
-    stakeSignature : Text,
+    stakeVaultSolanaAddress : Text,
+    stakeTimestamp : Nat,
+    verifierSignature : Text,
   ) : async () {
     switch (transaction) {
       case (null) {
-        Debug.print("Transaction not initialized");
-        return;
+        throw Error.reject("Should initialize first");
       };
       case (?txInfo) {
-        if (not isValidStateForStaking(txInfo.status)) {
-          Debug.print("Invalid state for staking");
+        let now : Nat = (Int.abs(Time.now()) / 1_000_000_000);
+        if (now > txInfo.creationTimestamp + txInfo.stakingPhaseDuration) {
+          transaction := ?{
+            txInfo with
+            status = #Timeout;
+            timeoutTimestamp = ?now;
+          };
           return;
         };
 
-        if (Time.now() > txInfo.creationTimestamp + txInfo.stakingWindowDuration) {
-          transaction := ?{
-            participantA = txInfo.participantA;
-            participantB = txInfo.participantB;
-            stakingWindowDuration = txInfo.stakingWindowDuration;
-            tradingWindowDuration = txInfo.tradingWindowDuration;
-            verifierAddress = txInfo.verifierAddress;
-            arbitratorAddress = txInfo.arbitratorAddress;
-            creationTimestamp = txInfo.creationTimestamp;
-            stakingCompletedTimestamp = txInfo.stakingCompletedTimestamp;
-            status = #Failed;
-            comments = txInfo.comments;
-          };
-          return;
+        if (not isValidStatusForStaking(txInfo.status)) {
+          throw Error.reject("Invalid status for staking");
+        };
+
+        if (not verifyStakeSignature(participantSolanaAddress, stakeVaultSolanaAddress, stakeTimestamp, verifierSignature)) {
+          throw Error.reject("Invalid signature");
         };
 
         var updatedTxInfo = txInfo;
-        var isParticipantA = false;
-        var isParticipantB = false;
 
-        if (Text.equal(participantSolanaAddress, txInfo.participantA.solanaAddress)) {
-          let updatedParticipantA : ParticipantInfo = {
-            solanaAddress = txInfo.participantA.solanaAddress;
-            requiredAmount = txInfo.participantA.requiredAmount;
-            vaultAddress = ?vaultAddress;
-            stakeTimestamp = ?stakeTimestamp;
-            stakeSignature = ?stakeSignature;
-            withdrawablePercentage = 100;
-          };
+        if (Text.equal(participantSolanaAddress, txInfo.participantA.participantSolanaAddress)) {
           updatedTxInfo := {
-            participantA = updatedParticipantA;
-            participantB = txInfo.participantB;
-            stakingWindowDuration = txInfo.stakingWindowDuration;
-            tradingWindowDuration = txInfo.tradingWindowDuration;
-            verifierAddress = txInfo.verifierAddress;
-            arbitratorAddress = txInfo.arbitratorAddress;
-            creationTimestamp = txInfo.creationTimestamp;
-            stakingCompletedTimestamp = txInfo.stakingCompletedTimestamp;
-            status = txInfo.status;
-            comments = txInfo.comments;
+            txInfo with
+            participantA = {
+              txInfo.participantA with
+              stakeVaultSolanaAddress = ?stakeVaultSolanaAddress;
+              stakeTimestamp = ?stakeTimestamp;
+              withdrawablePercentage = ?100;
+            }
           };
-          isParticipantA := true;
-        } else if (Text.equal(participantSolanaAddress, txInfo.participantB.solanaAddress)) {
-          let updatedParticipantB : ParticipantInfo = {
-            solanaAddress = txInfo.participantB.solanaAddress;
-            requiredAmount = txInfo.participantB.requiredAmount;
-            vaultAddress = ?vaultAddress;
-            stakeTimestamp = ?stakeTimestamp;
-            stakeSignature = ?stakeSignature;
-            withdrawablePercentage = 100;
-          };
+        } else if (Text.equal(participantSolanaAddress, txInfo.participantB.participantSolanaAddress)) {
           updatedTxInfo := {
-            participantA = txInfo.participantA;
-            participantB = updatedParticipantB;
-            stakingWindowDuration = txInfo.stakingWindowDuration;
-            tradingWindowDuration = txInfo.tradingWindowDuration;
-            verifierAddress = txInfo.verifierAddress;
-            arbitratorAddress = txInfo.arbitratorAddress;
-            creationTimestamp = txInfo.creationTimestamp;
-            stakingCompletedTimestamp = txInfo.stakingCompletedTimestamp;
-            status = txInfo.status;
-            comments = txInfo.comments;
+            txInfo with
+            participantB = {
+              txInfo.participantB with
+              stakeVaultSolanaAddress = ?stakeVaultSolanaAddress;
+              stakeTimestamp = ?stakeTimestamp;
+              withdrawablePercentage = ?100;
+            }
           };
-          isParticipantB := true;
         } else {
-          Debug.print("Invalid participant address");
-          return;
+          throw Error.reject("Invalid participant address");
         };
-
-        var newStatus = updatedTxInfo.status;
-        var newStakingCompletedTimestamp = updatedTxInfo.stakingCompletedTimestamp;
 
         let isAStaked = switch (updatedTxInfo.participantA.stakeTimestamp) {
           case (null) { false };
@@ -189,325 +161,268 @@ actor GuaranteeContract {
           case (_) { true };
         };
 
-        if (isAStaked and isBStaked) {
-          newStatus := #Staked;
-          newStakingCompletedTimestamp := ?Time.now();
+        let newStatus = if (isAStaked and isBStaked) {
+          #Staked;
         } else if (isAStaked or isBStaked) {
-          newStatus := #Staking;
+          #Staking;
+        } else {
+          throw Error.reject("Invalid value");
+        };
+
+        let newStakingPhaseCompletedTimestamp = if (isAStaked and isBStaked) {
+          ?now;
+        } else {
+          null;
         };
 
         transaction := ?{
-          participantA = updatedTxInfo.participantA;
-          participantB = updatedTxInfo.participantB;
-          stakingWindowDuration = updatedTxInfo.stakingWindowDuration;
-          tradingWindowDuration = updatedTxInfo.tradingWindowDuration;
-          verifierAddress = updatedTxInfo.verifierAddress;
-          arbitratorAddress = updatedTxInfo.arbitratorAddress;
-          creationTimestamp = updatedTxInfo.creationTimestamp;
-          stakingCompletedTimestamp = newStakingCompletedTimestamp;
+          updatedTxInfo with
           status = newStatus;
-          comments = updatedTxInfo.comments;
+          stakingPhaseCompletedTimestamp = newStakingPhaseCompletedTimestamp;
         };
       };
     };
   };
 
-  public shared func confirmTransactionComplete(
-    contractAddress : Principal,
-    participantATimestamp : Int,
-    participantBTimestamp : Int,
+  public shared func confirmTradingComplete(
+    participantATimestamp : Nat,
+    participantBTimestamp : Nat,
     participantASignature : Text,
     participantBSignature : Text,
   ) : async () {
     switch (transaction) {
       case (null) {
-        Debug.print("Transaction not initialized");
-        return;
+        throw Error.reject("Should initialize first");
       };
       case (?txInfo) {
         if (txInfo.status != #Staked) {
-          Debug.print("Transaction not in Staked state");
-          return;
+          throw Error.reject("Transaction is not in Staked status");
         };
 
-        switch (txInfo.stakingCompletedTimestamp) {
+        let now : Nat = (Int.abs(Time.now()) / 1_000_000_000);
+        switch (txInfo.stakingPhaseCompletedTimestamp) {
           case (null) {
-            Debug.print("Staking not completed yet");
-            return;
+            throw Error.reject("Invalid value");
           };
-          case (?stakingCompletedTime) {
-            if (Time.now() > stakingCompletedTime + txInfo.tradingWindowDuration) {
+          case (?stakingPhaseCompletedTimestamp) {
+
+            if (now > stakingPhaseCompletedTimestamp + txInfo.tradingPhaseDuration) {
               transaction := ?{
-                participantA = txInfo.participantA;
-                participantB = txInfo.participantB;
-                stakingWindowDuration = txInfo.stakingWindowDuration;
-                tradingWindowDuration = txInfo.tradingWindowDuration;
-                verifierAddress = txInfo.verifierAddress;
-                arbitratorAddress = txInfo.arbitratorAddress;
-                creationTimestamp = txInfo.creationTimestamp;
-                stakingCompletedTimestamp = txInfo.stakingCompletedTimestamp;
-                status = #Failed;
-                comments = txInfo.comments;
+                txInfo with
+                status = #Timeout;
+                timeoutTimestamp = ?now;
               };
               return;
             };
-          };
-        };
 
-        transaction := ?{
-          participantA = txInfo.participantA;
-          participantB = txInfo.participantB;
-          stakingWindowDuration = txInfo.stakingWindowDuration;
-          tradingWindowDuration = txInfo.tradingWindowDuration;
-          verifierAddress = txInfo.verifierAddress;
-          arbitratorAddress = txInfo.arbitratorAddress;
-          creationTimestamp = txInfo.creationTimestamp;
-          stakingCompletedTimestamp = txInfo.stakingCompletedTimestamp;
-          status = #Completed;
-          comments = txInfo.comments;
+            if (
+              not verifyTradeSignature(
+                participantATimestamp,
+                participantBTimestamp,
+                participantASignature,
+                participantBSignature,
+              )
+            ) {
+              throw Error.reject("Invalid signature");
+            };
+
+            transaction := ?{
+              txInfo with
+              status = #Completed;
+              tradingPhaseCompletedTimestamp = ?now;
+            };
+          };
         };
       };
     };
   };
 
   public shared func initiateDispute(
-    contractAddress : Principal,
-    participantTimestamp : Int,
+    participantTimestamp : Nat,
     participantSignature : Text,
   ) : async () {
     switch (transaction) {
       case (null) {
-        Debug.print("Transaction not initialized");
-        return;
+        throw Error.reject("Should initialize first");
       };
       case (?txInfo) {
         if (txInfo.status != #Staked) {
-          Debug.print("Transaction not in Staked state");
-          return;
+          throw Error.reject("Transaction is not in Staked status");
         };
 
-        switch (txInfo.stakingCompletedTimestamp) {
+        if (not verifyDisputeSignature(participantTimestamp, participantSignature)) {
+          throw Error.reject("Invalid signature");
+        };
+
+        let now = Int.abs(Time.now()) / 1_000_000_000;
+        switch (txInfo.stakingPhaseCompletedTimestamp) {
           case (null) {
-            Debug.print("Staking not completed yet");
-            return;
+            throw Error.reject("Invalid value");
           };
-          case (?stakingCompletedTime) {
-            if (Time.now() > stakingCompletedTime + txInfo.tradingWindowDuration) {
+          case (?stakingPhaseCompletedTimestamp) {
+            if (now > stakingPhaseCompletedTimestamp + txInfo.tradingPhaseDuration) {
               transaction := ?{
-                participantA = txInfo.participantA;
-                participantB = txInfo.participantB;
-                stakingWindowDuration = txInfo.stakingWindowDuration;
-                tradingWindowDuration = txInfo.tradingWindowDuration;
-                verifierAddress = txInfo.verifierAddress;
-                arbitratorAddress = txInfo.arbitratorAddress;
-                creationTimestamp = txInfo.creationTimestamp;
-                stakingCompletedTimestamp = txInfo.stakingCompletedTimestamp;
-                status = #Failed;
-                comments = txInfo.comments;
+                txInfo with
+                status = #Timeout;
+                timeoutTimestamp = ?now;
               };
-              return;
+            } else {
+              transaction := ?{
+                txInfo with
+                status = #Disputed;
+              };
             };
           };
-        };
-
-        transaction := ?{
-          participantA = txInfo.participantA;
-          participantB = txInfo.participantB;
-          stakingWindowDuration = txInfo.stakingWindowDuration;
-          tradingWindowDuration = txInfo.tradingWindowDuration;
-          verifierAddress = txInfo.verifierAddress;
-          arbitratorAddress = txInfo.arbitratorAddress;
-          creationTimestamp = txInfo.creationTimestamp;
-          stakingCompletedTimestamp = txInfo.stakingCompletedTimestamp;
-          status = #Disputed;
-          comments = txInfo.comments;
         };
       };
     };
   };
 
   public shared func resolveDispute(
-    contractAddress : Principal,
+    arbitrateTimestamp : Nat,
+    comments : Text,
     participantAPercentage : Nat,
     participantBPercentage : Nat,
-    comments : Text,
-    arbitratorTimestamp : Int,
     arbitratorSignature : Text,
   ) : async () {
     switch (transaction) {
       case (null) {
-        Debug.print("Transaction not initialized");
-        return;
+        throw Error.reject("Should initialize first");
       };
       case (?txInfo) {
         if (txInfo.status != #Disputed) {
-          Debug.print("Transaction not in Disputed state");
-          return;
+          throw Error.reject("Transaction is not in Disputed status");
         };
 
-        let updatedParticipantA : ParticipantInfo = {
-          solanaAddress = txInfo.participantA.solanaAddress;
-          requiredAmount = txInfo.participantA.requiredAmount;
-          vaultAddress = txInfo.participantA.vaultAddress;
-          stakeTimestamp = txInfo.participantA.stakeTimestamp;
-          stakeSignature = txInfo.participantA.stakeSignature;
-          withdrawablePercentage = participantAPercentage;
+        if (not verifyResolveSignature(arbitrateTimestamp, comments, participantAPercentage, participantBPercentage, arbitratorSignature)) {
+          throw Error.reject("Invalid signature");
         };
 
-        let updatedParticipantB : ParticipantInfo = {
-          solanaAddress = txInfo.participantB.solanaAddress;
-          requiredAmount = txInfo.participantB.requiredAmount;
-          vaultAddress = txInfo.participantB.vaultAddress;
-          stakeTimestamp = txInfo.participantB.stakeTimestamp;
-          stakeSignature = txInfo.participantB.stakeSignature;
-          withdrawablePercentage = participantBPercentage;
-        };
-
+        let now = Int.abs(Time.now()) / 1_000_000_000;
         transaction := ?{
-          participantA = updatedParticipantA;
-          participantB = updatedParticipantB;
-          stakingWindowDuration = txInfo.stakingWindowDuration;
-          tradingWindowDuration = txInfo.tradingWindowDuration;
-          verifierAddress = txInfo.verifierAddress;
-          arbitratorAddress = txInfo.arbitratorAddress;
-          creationTimestamp = txInfo.creationTimestamp;
-          stakingCompletedTimestamp = txInfo.stakingCompletedTimestamp;
+          txInfo with
           status = #Resolved;
+          participantA = {
+            txInfo.participantA with
+            withdrawablePercentage = ?participantAPercentage;
+          };
+          participantB = {
+            txInfo.participantB with
+            withdrawablePercentage = ?participantBPercentage;
+          };
+          resolvedTimestamp = ?now;
           comments = comments;
         };
       };
     };
   };
 
-  public shared func forceEnd(
-    contractAddress : Principal,
+  private func isValidStatusForStaking(status : Status) : Bool {
+    switch (status) {
+      case (#New) { return true };
+      case (#Staking) { return true };
+      case (_) { return false };
+    };
+  };
+
+  private func verifyStakeSignature(
+    participantSolanaAddress : Text,
+    stakeVaultSolanaAddress : Text,
+    stakeTimestamp : Nat,
+    verifierSignature : Text,
+  ) : Bool {
+    // TODO: verify signature
+    return true;
+  };
+
+  private func verifyTradeSignature(
+    participantATimestamp : Nat,
+    participantBTimestamp : Nat,
+    participantASignature : Text,
+    participantBSignature : Text,
+  ) : Bool {
+    // TODO: verify signature
+    return true;
+  };
+
+  private func verifyDisputeSignature(
+    participantTimestamp : Nat,
+    participantSignature : Text,
+  ) : Bool {
+    // TODO: verify signature
+    return true;
+  };
+
+  private func verifyResolveSignature(
+    arbitrateTimestamp : Nat,
+    comments : Text,
     participantAPercentage : Nat,
     participantBPercentage : Nat,
-    comments : Text,
-    arbitratorTimestamp : Int,
     arbitratorSignature : Text,
-  ) : async () {
-    switch (transaction) {
-      case (null) {
-        Debug.print("Transaction not initialized");
-        return;
-      };
-      case (?txInfo) {
-        let updatedParticipantA : ParticipantInfo = {
-          solanaAddress = txInfo.participantA.solanaAddress;
-          requiredAmount = txInfo.participantA.requiredAmount;
-          vaultAddress = txInfo.participantA.vaultAddress;
-          stakeTimestamp = txInfo.participantA.stakeTimestamp;
-          stakeSignature = txInfo.participantA.stakeSignature;
-          withdrawablePercentage = participantAPercentage;
-        };
+  ) : Bool {
+    // TODO: verify signature
+    return true;
+  };
 
-        let updatedParticipantB : ParticipantInfo = {
-          solanaAddress = txInfo.participantB.solanaAddress;
-          requiredAmount = txInfo.participantB.requiredAmount;
-          vaultAddress = txInfo.participantB.vaultAddress;
-          stakeTimestamp = txInfo.participantB.stakeTimestamp;
-          stakeSignature = txInfo.participantB.stakeSignature;
-          withdrawablePercentage = participantBPercentage;
-        };
-
-        transaction := ?{
-          participantA = updatedParticipantA;
-          participantB = updatedParticipantB;
-          stakingWindowDuration = txInfo.stakingWindowDuration;
-          tradingWindowDuration = txInfo.tradingWindowDuration;
-          verifierAddress = txInfo.verifierAddress;
-          arbitratorAddress = txInfo.arbitratorAddress;
-          creationTimestamp = txInfo.creationTimestamp;
-          stakingCompletedTimestamp = txInfo.stakingCompletedTimestamp;
-          status = #Ended;
-          comments = comments;
-        };
-      };
-    };
+  public query func getThisCanisterPrincipal() : async Principal {
+    Principal.fromActor(Guarantee);
   };
 
   public query func getTransactionStatus() : async ?Text {
     switch (transaction) {
-      case (null) { return null };
+      case (null) { null };
       case (?txInfo) {
         switch (txInfo.status) {
-          case (#New) { return ?"New" };
-          case (#Staking) { return ?"Staking" };
-          case (#Staked) { return ?"Staked" };
-          case (#Completed) { return ?"Completed" };
-          case (#Disputed) { return ?"Disputed" };
-          case (#Resolved) { return ?"Resolved" };
-          case (#Failed) { return ?"Failed" };
-          case (#Ended) { return ?"Ended" };
+          case (#New) { ?"New" };
+          case (#Staking) { ?"Staking" };
+          case (#Staked) { ?"Staked" };
+          case (#Completed) { ?"Completed" };
+          case (#Timeout) { ?"Timeout" };
+          case (#Disputed) { ?"Disputed" };
+          case (#Resolved) { ?"Resolved" };
         };
       };
-    };
-  };
-
-  public query func getParticipantAWithdrawablePercentage() : async ?Nat {
-    switch (transaction) {
-      case (null) { return null };
-      case (?txInfo) { return ?txInfo.participantA.withdrawablePercentage };
-    };
-  };
-
-  public query func getParticipantBWithdrawablePercentage() : async ?Nat {
-    switch (transaction) {
-      case (null) { return null };
-      case (?txInfo) { return ?txInfo.participantB.withdrawablePercentage };
     };
   };
 
   public query func getTransactionDetails() : async ?{
     participantASolanaAddress : Text;
     participantBSolanaAddress : Text;
-    participantARequiredAmount : Nat;
-    participantBRequiredAmount : Nat;
-    stakingWindowDuration : Int;
-    tradingWindowDuration : Int;
-    verifierAddress : Text;
-    arbitratorAddress : Text;
-    creationTimestamp : Int;
+    participantAShouldStakeUSDCAmount : Nat;
+    participantBShouldStakeUSDCAmount : Nat;
+    stakingPhaseDuration : Nat;
+    tradingPhaseDuration : Nat;
+    verifierSolanaAddress : Text;
+    arbitratorSolanaAddress : Text;
+    creationTimestamp : Nat;
     status : Text;
-    comments : Text;
+    comments : ?Text;
   } {
     switch (transaction) {
-      case (null) { return null };
+      case (null) { null };
       case (?txInfo) {
-        let statusText = switch (txInfo.status) {
-          case (#New) { "New" };
-          case (#Staking) { "Staking" };
-          case (#Staked) { "Staked" };
-          case (#Completed) { "Completed" };
-          case (#Disputed) { "Disputed" };
-          case (#Resolved) { "Resolved" };
-          case (#Failed) { "Failed" };
-          case (#Ended) { "Ended" };
-        };
-
-        return ?{
-          participantASolanaAddress = txInfo.participantA.solanaAddress;
-          participantBSolanaAddress = txInfo.participantB.solanaAddress;
-          participantARequiredAmount = txInfo.participantA.requiredAmount;
-          participantBRequiredAmount = txInfo.participantB.requiredAmount;
-          stakingWindowDuration = txInfo.stakingWindowDuration;
-          tradingWindowDuration = txInfo.tradingWindowDuration;
-          verifierAddress = txInfo.verifierAddress;
-          arbitratorAddress = txInfo.arbitratorAddress;
+        ?{
+          participantASolanaAddress = txInfo.participantA.participantSolanaAddress;
+          participantBSolanaAddress = txInfo.participantB.participantSolanaAddress;
+          participantAShouldStakeUSDCAmount = txInfo.participantA.shouldStakeUSDCAmount;
+          participantBShouldStakeUSDCAmount = txInfo.participantB.shouldStakeUSDCAmount;
+          stakingPhaseDuration = txInfo.stakingPhaseDuration;
+          tradingPhaseDuration = txInfo.tradingPhaseDuration;
+          verifierSolanaAddress = txInfo.verifierSolanaAddress;
+          arbitratorSolanaAddress = txInfo.arbitratorSolanaAddress;
           creationTimestamp = txInfo.creationTimestamp;
-          status = statusText;
-          comments = txInfo.comments;
+          status = switch (txInfo.status) {
+            case (#New) { "New" };
+            case (#Staking) { "Staking" };
+            case (#Staked) { "Staked" };
+            case (#Completed) { "Completed" };
+            case (#Disputed) { "Disputed" };
+            case (#Resolved) { "Resolved" };
+            case (#Timeout) { "Timeout" };
+          };
+          comments = ?txInfo.comments;
         };
       };
-    };
-  };
-
-  private func isValidStateForStaking(status : TransactionStatus) : Bool {
-    switch (status) {
-      case (#New) { return true };
-      case (#Staking) { return true };
-      case (_) { return false };
     };
   };
 };
