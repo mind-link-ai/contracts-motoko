@@ -1,14 +1,18 @@
 {
   "private": true,
   "scripts": {
-    "deploy:playground": "dfx deploy --playground"
+    "deploy:playground": "dfx deploy --playground",
+    "test:guarantee": "ts-node tests/guarantee.test.ts"
   },
   "engines": {
     "node": ">=20",
     "pnpm": ">=9"
   },
-  "dependencies": {
-    "@types/node": "^22.14.1",
+  "devDependencies": {
+    "@dfinity/agent": "^2.4.1",
+    "@dfinity/principal": "^2.4.1",
+    "@types/node": "^22.15.2",
+    "dotenv": "^16.5.0",
     "prettier": "^3.5.3",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"
