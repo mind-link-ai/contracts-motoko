@@ -10,11 +10,11 @@ actor Guarantee {
     #Staking;
     #Staked;
     #Traded;
-    #Settling;
-    #Settled;
     #Timeout;
     #Disputing;
     #Resolved;
+    #Settling;
+    #Settled;
   };
 
   type ParticipantInfo = {
@@ -23,50 +23,55 @@ actor Guarantee {
     withdrawablePercentage : Nat;
     stakeVaultSolanaAddress : ?Text;
     stakeTimestamp : ?Nat;
-    settleTimestamp : ?Nat;
     disputeTimestamp : ?Nat;
+    settleTimestamp : ?Nat;
   };
 
   type TransactionInfo = {
     status : Status;
-    creationTimestamp : Nat;
-    stakeDuration : Nat;
-    tradeDuration : Nat;
+    comments : Text;
     participantA : ParticipantInfo;
     participantB : ParticipantInfo;
     verifierSolanaAddress : Text;
     arbitratorSolanaAddress : Text;
-    comments : Text;
+    stakeDuration : Nat;
+    tradeDuration : Nat;
+    newTimestamp : Nat;
     stakedTimestamp : ?Nat;
     tradedTimestamp : ?Nat;
-    settledTimestamp : ?Nat;
     timeoutTimestamp : ?Nat;
     resolvedTimestamp : ?Nat;
+    settledTimestamp : ?Nat;
   };
 
   stable var transaction : ?TransactionInfo = null;
 
   public shared func initialize(
-    stakeDuration : Nat,
-    tradeDuration : Nat,
+    comments : Text,
     participantASolanaAddress : Text,
     participantBSolanaAddress : Text,
     participantAShouldStakeUSDCAmount : Nat,
     participantBShouldStakeUSDCAmount : Nat,
     verifierSolanaAddress : Text,
     arbitratorSolanaAddress : Text,
-    comments : Text,
+    stakeDuration : Nat,
+    tradeDuration : Nat,
   ) : async () {
+    // product
     switch (transaction) {
       case (null) {
+        if (participantAShouldStakeUSDCAmount == 0 and participantBShouldStakeUSDCAmount == 0) {
+          throw Error.reject("At least one participant should stake amount greater than 0");
+        };
+
         let participantA : ParticipantInfo = {
           participantSolanaAddress = participantASolanaAddress;
           shouldStakeUSDCAmount = participantAShouldStakeUSDCAmount;
           withdrawablePercentage = 0;
           stakeVaultSolanaAddress = null;
           stakeTimestamp = null;
-          settleTimestamp = null;
           disputeTimestamp = null;
+          settleTimestamp = null;
         };
 
         let participantB : ParticipantInfo = {
@@ -81,25 +86,66 @@ actor Guarantee {
 
         transaction := ?{
           status = #New;
-          creationTimestamp = (Int.abs(Time.now()) / 1_000_000_000);
-          stakeDuration = stakeDuration;
-          tradeDuration = tradeDuration;
+          comments = comments;
           participantA = participantA;
           participantB = participantB;
           verifierSolanaAddress = verifierSolanaAddress;
           arbitratorSolanaAddress = arbitratorSolanaAddress;
-          comments = comments;
+          stakeDuration = stakeDuration;
+          tradeDuration = tradeDuration;
+          newTimestamp = (Int.abs(Time.now()) / 1_000_000_000);
           stakedTimestamp = null;
           tradedTimestamp = null;
-          settledTimestamp = null;
           timeoutTimestamp = null;
           resolvedTimestamp = null;
+          settledTimestamp = null;
         };
       };
       case (_) {
         throw Error.reject("Already initialized");
       };
     };
+    if (participantAShouldStakeUSDCAmount == 0 and participantBShouldStakeUSDCAmount == 0) {
+      throw Error.reject("At least one participant should stake amount greater than 0");
+    };
+
+    // dev
+    // let participantA : ParticipantInfo = {
+    //   participantSolanaAddress = participantASolanaAddress;
+    //   shouldStakeUSDCAmount = participantAShouldStakeUSDCAmount;
+    //   withdrawablePercentage = 0;
+    //   stakeVaultSolanaAddress = null;
+    //   stakeTimestamp = null;
+    //   disputeTimestamp = null;
+    //   settleTimestamp = null;
+    // };
+
+    // let participantB : ParticipantInfo = {
+    //   participantSolanaAddress = participantBSolanaAddress;
+    //   shouldStakeUSDCAmount = participantBShouldStakeUSDCAmount;
+    //   withdrawablePercentage = 0;
+    //   stakeVaultSolanaAddress = null;
+    //   stakeTimestamp = null;
+    //   settleTimestamp = null;
+    //   disputeTimestamp = null;
+    // };
+
+    // transaction := ?{
+    //   status = #New;
+    //   comments = comments;
+    //   participantA = participantA;
+    //   participantB = participantB;
+    //   verifierSolanaAddress = verifierSolanaAddress;
+    //   arbitratorSolanaAddress = arbitratorSolanaAddress;
+    //   stakeDuration = stakeDuration;
+    //   tradeDuration = tradeDuration;
+    //   newTimestamp = (Int.abs(Time.now()) / 1_000_000_000);
+    //   stakedTimestamp = null;
+    //   tradedTimestamp = null;
+    //   timeoutTimestamp = null;
+    //   resolvedTimestamp = null;
+    //   settledTimestamp = null;
+    // };
   };
 
   public shared func confirmStakingComplete(
@@ -114,12 +160,13 @@ actor Guarantee {
       };
       case (?txInfo) {
         let now : Nat = (Int.abs(Time.now()) / 1_000_000_000);
-        if (now > txInfo.creationTimestamp + txInfo.stakeDuration) {
+        if (now > txInfo.newTimestamp + txInfo.stakeDuration) {
           transaction := ?{
             txInfo with
             status = #Timeout;
             timeoutTimestamp = ?now;
           };
+          return;
         };
 
         if (not (txInfo.status == #New or txInfo.status == #Staking)) {
@@ -155,14 +202,17 @@ actor Guarantee {
           throw Error.reject("Invalid participant address");
         };
 
+        let isParticipantAZeroStake = txInfo.participantA.shouldStakeUSDCAmount == 0;
+        let isParticipantBZeroStake = txInfo.participantB.shouldStakeUSDCAmount == 0;
         let isAStaked = switch (updatedTxInfo.participantA.stakeTimestamp) {
-          case (null) { false };
+          case (null) { isParticipantAZeroStake };
           case (_) { true };
         };
         let isBStaked = switch (updatedTxInfo.participantB.stakeTimestamp) {
-          case (null) { false };
+          case (null) { isParticipantBZeroStake };
           case (_) { true };
         };
+
         let newStatus = if (isAStaked and isBStaked) {
           #Staked;
         } else if (isAStaked or isBStaked) {
@@ -170,11 +220,13 @@ actor Guarantee {
         } else {
           throw Error.reject("Invalid value");
         };
+
         let newStakedTimestamp = if (newStatus == #Staked) {
           ?now;
         } else {
           null;
         };
+
         transaction := ?{
           updatedTxInfo with
           status = newStatus;
@@ -195,18 +247,20 @@ actor Guarantee {
         throw Error.reject("Should initialize first");
       };
       case (?txInfo) {
-        let now : Nat = (Int.abs(Time.now()) / 1_000_000_000);
         switch (txInfo.stakedTimestamp) {
           case (null) {
             throw Error.reject("Invalid value");
           };
           case (?stakedTimestamp) {
+            let now : Nat = (Int.abs(Time.now()) / 1_000_000_000);
             if (now > stakedTimestamp + txInfo.tradeDuration) {
               transaction := ?{
                 txInfo with
                 status = #Timeout;
+                tradedTimestamp = ?now;
                 timeoutTimestamp = ?now;
               };
+              return;
             };
 
             if (not (txInfo.status == #Staked)) {
@@ -246,8 +300,8 @@ actor Guarantee {
         throw Error.reject("Should initialize first");
       };
       case (?txInfo) {
-        if (not (txInfo.status == #Traded or txInfo.status == #Resolved or txInfo.status == #Timeout or txInfo.status == #Settling)) {
-          throw Error.reject("Transaction is not in Traded/Resolved/Timeout/Settling status");
+        if (not (txInfo.status == #Traded or txInfo.status == #Timeout or txInfo.status == #Resolved or txInfo.status == #Settling)) {
+          throw Error.reject("Transaction is not in Traded/Timeout/Resolved/Settling status");
         };
 
         if (not verifySettleSignature(stakeVaultSolanaAddress, participantSolanaAddress, participantSettleTimestamp, verifierSignature)) {
@@ -276,14 +330,17 @@ actor Guarantee {
           throw Error.reject("Invalid participant address");
         };
 
+        let isParticipantAZeroStake = txInfo.participantA.shouldStakeUSDCAmount == 0;
+        let isParticipantBZeroStake = txInfo.participantB.shouldStakeUSDCAmount == 0;
         let isASettled = switch (updatedTxInfo.participantA.settleTimestamp) {
-          case (null) { false };
+          case (null) { isParticipantAZeroStake };
           case (_) { true };
         };
         let isBSettled = switch (updatedTxInfo.participantB.settleTimestamp) {
-          case (null) { false };
+          case (null) { isParticipantBZeroStake };
           case (_) { true };
         };
+
         let newStatus = if (isASettled and isBSettled) {
           #Settled;
         } else if (isASettled or isBSettled) {
@@ -291,11 +348,13 @@ actor Guarantee {
         } else {
           throw Error.reject("Invalid value");
         };
+
         let newSettledTimestamp = if (newStatus == #Settled) {
           ?now;
         } else {
           null;
         };
+
         transaction := ?{
           updatedTxInfo with
           status = newStatus;
@@ -315,18 +374,20 @@ actor Guarantee {
         throw Error.reject("Should initialize first");
       };
       case (?txInfo) {
-        let now : Nat = (Int.abs(Time.now()) / 1_000_000_000);
         switch (txInfo.stakedTimestamp) {
           case (null) {
             throw Error.reject("Invalid value");
           };
           case (?stakedTimestamp) {
+            let now : Nat = (Int.abs(Time.now()) / 1_000_000_000);
             if (now > stakedTimestamp + txInfo.tradeDuration) {
               transaction := ?{
                 txInfo with
                 status = #Timeout;
+                tradedTimestamp = ?now;
                 timeoutTimestamp = ?now;
               };
+              return;
             };
 
             if (not (txInfo.status == #Staked)) {
@@ -369,9 +430,9 @@ actor Guarantee {
   };
 
   public shared func resolveDispute(
+    comments : Text,
     participantAWithdrawablePercentage : Nat,
     participantBWithdrawablePercentage : Nat,
-    comments : Text,
     arbitratorResolveTimestamp : Nat,
     arbitratorSignature : Text,
   ) : async () {
@@ -384,7 +445,7 @@ actor Guarantee {
           throw Error.reject("Transaction is not in Disputing status");
         };
 
-        if (not verifyResolveSignature(participantAWithdrawablePercentage, participantBWithdrawablePercentage, comments, arbitratorResolveTimestamp, arbitratorSignature)) {
+        if (not verifyResolveSignature(comments, participantAWithdrawablePercentage, participantBWithdrawablePercentage, arbitratorResolveTimestamp, arbitratorSignature)) {
           throw Error.reject("Invalid signature");
         };
 
@@ -392,6 +453,7 @@ actor Guarantee {
         transaction := ?{
           txInfo with
           status = #Resolved;
+          comments = comments;
           participantA = {
             txInfo.participantA with
             withdrawablePercentage = participantAWithdrawablePercentage;
@@ -400,7 +462,6 @@ actor Guarantee {
             txInfo.participantB with
             withdrawablePercentage = participantBWithdrawablePercentage;
           };
-          comments = comments;
           resolvedTimestamp = ?now;
         };
       };
@@ -447,9 +508,9 @@ actor Guarantee {
   };
 
   private func verifyResolveSignature(
+    comments : Text,
     participantAWithdrawablePercentage : Nat,
     participantBWithdrawablePercentage : Nat,
-    comments : Text,
     arbitratorResolveTimestamp : Nat,
     arbitratorSignature : Text,
   ) : Bool {
@@ -466,26 +527,11 @@ actor Guarantee {
           case (#Staking) { ?"Staking" };
           case (#Staked) { ?"Staked" };
           case (#Traded) { ?"Traded" };
-          case (#Settling) { ?"Settling" };
-          case (#Settled) { ?"Settled" };
           case (#Timeout) { ?"Timeout" };
           case (#Disputing) { ?"Disputing" };
           case (#Resolved) { ?"Resolved" };
-        };
-      };
-    };
-  };
-
-  public query func getParticipantDetails(participantSolanaAddress : Text) : async ?ParticipantInfo {
-    switch (transaction) {
-      case (null) { null };
-      case (?txInfo) {
-        if (Text.equal(participantSolanaAddress, txInfo.participantA.participantSolanaAddress)) {
-          ?txInfo.participantA;
-        } else if (Text.equal(participantSolanaAddress, txInfo.participantB.participantSolanaAddress)) {
-          ?txInfo.participantB;
-        } else {
-          null;
+          case (#Settling) { ?"Settling" };
+          case (#Settled) { ?"Settled" };
         };
       };
     };
