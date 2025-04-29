@@ -7,10 +7,17 @@ settings:
 importers:
 
   .:
+    dependencies:
+      bs58:
+        specifier: ^6.0.0
+        version: 6.0.0
+      tweetnacl:
+        specifier: ^1.0.3
+        version: 1.0.3
     devDependencies:
       '@dfinity/agent':
         specifier: ^2.4.1
-        version: 2.4.1(@dfinity/candid@2.4.1(@dfinity/principal@2.4.1))(@dfinity/principal@2.4.1)
+        version: 2.4.1(@dfinity/candid@2.3.0(@dfinity/principal@2.4.1))(@dfinity/principal@2.4.1)
       '@dfinity/principal':
         specifier: ^2.4.1
         version: 2.4.1
@@ -42,10 +49,10 @@ packages:
       '@dfinity/candid': ^2.4.1
       '@dfinity/principal': ^2.4.1
 
-  '@dfinity/candid@2.4.1':
-    resolution: {integrity: sha512-kOaIKfhR2PYN8vD4M0Pc4s/7wb1nKjlTJUw+5E9jh26T03fITIZmaafIuwlX+wmdxwIT9Xoy7PlsxOEpzv203A==}
+  '@dfinity/candid@2.3.0':
+    resolution: {integrity: sha512-Xzj3EWfwaVZy90jq6WBRP4Cyqo93r3g8tvBea8W8PN3I4W6KcN2/9ZJaBhT3Y4NP+p2w4ZO6aJ+qp9xH990aYw==}
     peerDependencies:
-      '@dfinity/principal': ^2.4.1
+      '@dfinity/principal': ^2.3.0
 
   '@dfinity/principal@2.4.1':
     resolution: {integrity: sha512-Cz6XQVOwq0TXDBClPbcidDd4SqK1lfr1/Kn34ruDD13xVQ4iaP1iCntzS9O97+vGpY/6jwDtKd32Gn5YJ9BQNw==}
@@ -95,6 +102,9 @@ packages:
   arg@4.1.3:
     resolution: {integrity: sha512-58S9QDqG0Xx27YwPSt9fJxivjYl432YCwfDMfZ+71RAqUrZef7LrKQZ3LHLOwCS4FLNBplP533Zx895SeOCHvA==}
 
+  base-x@5.0.1:
+    resolution: {integrity: sha512-M7uio8Zt++eg3jPj+rHMfCC+IuygQHHCOU+IYsVtik6FWjuYpVt/+MRKcgsAMHh8mMFAwnB+Bs+mTrFiXjMzKg==}
+
   base64-arraybuffer@0.2.0:
     resolution: {integrity: sha512-7emyCsu1/xiBXgQZrscw/8KPRT44I4Yq9Pe6EGs3aPRTsWuggML1/1DTuZUuIaJPIm1FTDUVXl4x/yW8s0kQDQ==}
     engines: {node: '>= 0.6.0'}
@@ -108,6 +118,9 @@ packages:
   borc@2.1.2:
     resolution: {integrity: sha512-Sy9eoUi4OiKzq7VovMn246iTo17kzuyHJKomCfpWMlI6RpfN1gk95w7d7gH264nApVLg0HZfcpz62/g4VH1Y4w==}
     engines: {node: '>=4'}
+
+  bs58@6.0.0:
+    resolution: {integrity: sha512-PD0wEnEYg6ijszw/u8s+iI3H17cTymlrwkKhDhPZq+Sokl3AU4htyBFTjAeNAlCCmg0f53g6ih3jATyCKftTfw==}
 
   buffer@5.7.1:
     resolution: {integrity: sha512-EHcyIPBQ4BSGlvjB16k5KgAJ27CIsHY/2JBmCRReo48y9rQ3MaUzWX3KVlBa4U7MyX02HdVj0K7C3WaB3ju7FQ==}
@@ -180,6 +193,9 @@ packages:
       '@swc/wasm':
         optional: true
 
+  tweetnacl@1.0.3:
+    resolution: {integrity: sha512-6rt+RN7aOi1nGMyC4Xa5DdYiukl2UWCbcJft7YhxReBGQD7OAM8Pbxw6YMo4r2diNEA8FEmu32YOn9rhaiE5yw==}
+
   typescript@5.8.3:
     resolution: {integrity: sha512-p1diW6TqL9L07nNxvRMM7hMMw4c5XOo/1ibL4aAIGmSAt9slTE1Xgw5KWuof2uTOvCg9BY7ZRi+GaF+7sfgPeQ==}
     engines: {node: '>=14.17'}
@@ -204,9 +220,9 @@ snapshots:
     dependencies:
       '@jridgewell/trace-mapping': 0.3.9
 
-  '@dfinity/agent@2.4.1(@dfinity/candid@2.4.1(@dfinity/principal@2.4.1))(@dfinity/principal@2.4.1)':
+  '@dfinity/agent@2.4.1(@dfinity/candid@2.3.0(@dfinity/principal@2.4.1))(@dfinity/principal@2.4.1)':
     dependencies:
-      '@dfinity/candid': 2.4.1(@dfinity/principal@2.4.1)
+      '@dfinity/candid': 2.3.0(@dfinity/principal@2.4.1)
       '@dfinity/principal': 2.4.1
       '@noble/curves': 1.9.0
       '@noble/hashes': 1.8.0
@@ -215,7 +231,7 @@ snapshots:
       buffer: 6.0.3
       simple-cbor: 0.4.1
 
-  '@dfinity/candid@2.4.1(@dfinity/principal@2.4.1)':
+  '@dfinity/candid@2.3.0(@dfinity/principal@2.4.1)':
     dependencies:
       '@dfinity/principal': 2.4.1
 
@@ -258,6 +274,8 @@ snapshots:
 
   arg@4.1.3: {}
 
+  base-x@5.0.1: {}
+
   base64-arraybuffer@0.2.0: {}
 
   base64-js@1.5.1: {}
@@ -273,6 +291,10 @@ snapshots:
       iso-url: 0.4.7
       json-text-sequence: 0.1.1
       readable-stream: 3.6.2
+
+  bs58@6.0.0:
+    dependencies:
+      base-x: 5.0.1
 
   buffer@5.7.1:
     dependencies:
@@ -339,6 +361,8 @@ snapshots:
       typescript: 5.8.3
       v8-compile-cache-lib: 3.0.1
       yn: 3.1.1
+
+  tweetnacl@1.0.3: {}
 
   typescript@5.8.3: {}
 

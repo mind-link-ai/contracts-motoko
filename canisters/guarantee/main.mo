@@ -1,8 +1,15 @@
+import Blob "mo:base/Blob";
 import Error "mo:base/Error";
 import Int "mo:base/Int";
+import NACL "mo:tweetnacl";
+import Nat "mo:base/Nat";
+import Nat8 "mo:base/Nat8";
 import Principal "mo:base/Principal";
 import Text "mo:base/Text";
 import Time "mo:base/Time";
+import Array "mo:base/Array";
+import Iter "mo:base/Iter";
+import Char "mo:base/Char";
 
 actor Guarantee {
   type Status = {
@@ -20,7 +27,7 @@ actor Guarantee {
   type ParticipantInfo = {
     participantSolanaAddress : Text;
     shouldStakeUSDCAmount : Nat;
-    withdrawablePercentage : Nat;
+    withdrawableUSDCAmount : Nat;
     stakeVaultSolanaAddress : ?Text;
     stakeTimestamp : ?Nat;
     disputeTimestamp : ?Nat;
@@ -57,7 +64,6 @@ actor Guarantee {
     stakeDuration : Nat,
     tradeDuration : Nat,
   ) : async () {
-    // product
     switch (transaction) {
       case (null) {
         if (participantAShouldStakeUSDCAmount == 0 and participantBShouldStakeUSDCAmount == 0) {
@@ -67,7 +73,7 @@ actor Guarantee {
         let participantA : ParticipantInfo = {
           participantSolanaAddress = participantASolanaAddress;
           shouldStakeUSDCAmount = participantAShouldStakeUSDCAmount;
-          withdrawablePercentage = 0;
+          withdrawableUSDCAmount = 0;
           stakeVaultSolanaAddress = null;
           stakeTimestamp = null;
           disputeTimestamp = null;
@@ -77,7 +83,7 @@ actor Guarantee {
         let participantB : ParticipantInfo = {
           participantSolanaAddress = participantBSolanaAddress;
           shouldStakeUSDCAmount = participantBShouldStakeUSDCAmount;
-          withdrawablePercentage = 0;
+          withdrawableUSDCAmount = 0;
           stakeVaultSolanaAddress = null;
           stakeTimestamp = null;
           settleTimestamp = null;
@@ -105,47 +111,6 @@ actor Guarantee {
         throw Error.reject("Already initialized");
       };
     };
-    if (participantAShouldStakeUSDCAmount == 0 and participantBShouldStakeUSDCAmount == 0) {
-      throw Error.reject("At least one participant should stake amount greater than 0");
-    };
-
-    // dev
-    // let participantA : ParticipantInfo = {
-    //   participantSolanaAddress = participantASolanaAddress;
-    //   shouldStakeUSDCAmount = participantAShouldStakeUSDCAmount;
-    //   withdrawablePercentage = 0;
-    //   stakeVaultSolanaAddress = null;
-    //   stakeTimestamp = null;
-    //   disputeTimestamp = null;
-    //   settleTimestamp = null;
-    // };
-
-    // let participantB : ParticipantInfo = {
-    //   participantSolanaAddress = participantBSolanaAddress;
-    //   shouldStakeUSDCAmount = participantBShouldStakeUSDCAmount;
-    //   withdrawablePercentage = 0;
-    //   stakeVaultSolanaAddress = null;
-    //   stakeTimestamp = null;
-    //   settleTimestamp = null;
-    //   disputeTimestamp = null;
-    // };
-
-    // transaction := ?{
-    //   status = #New;
-    //   comments = comments;
-    //   participantA = participantA;
-    //   participantB = participantB;
-    //   verifierSolanaAddress = verifierSolanaAddress;
-    //   arbitratorSolanaAddress = arbitratorSolanaAddress;
-    //   stakeDuration = stakeDuration;
-    //   tradeDuration = tradeDuration;
-    //   newTimestamp = (Int.abs(Time.now()) / 1_000_000_000);
-    //   stakedTimestamp = null;
-    //   tradedTimestamp = null;
-    //   timeoutTimestamp = null;
-    //   resolvedTimestamp = null;
-    //   settledTimestamp = null;
-    // };
   };
 
   public shared func confirmStakingComplete(
@@ -160,7 +125,7 @@ actor Guarantee {
       };
       case (?txInfo) {
         let now : Nat = (Int.abs(Time.now()) / 1_000_000_000);
-        if (now > txInfo.newTimestamp + txInfo.stakeDuration) {
+        if (now > (txInfo.newTimestamp + txInfo.stakeDuration)) {
           transaction := ?{
             txInfo with
             status = #Timeout;
@@ -183,7 +148,7 @@ actor Guarantee {
             txInfo with
             participantA = {
               txInfo.participantA with
-              withdrawablePercentage = 100;
+              withdrawableUSDCAmount = txInfo.participantA.shouldStakeUSDCAmount;
               stakeVaultSolanaAddress = ?stakeVaultSolanaAddress;
               stakeTimestamp = ?participantStakeTimestamp;
             }
@@ -193,7 +158,7 @@ actor Guarantee {
             txInfo with
             participantB = {
               txInfo.participantB with
-              withdrawablePercentage = 100;
+              withdrawableUSDCAmount = txInfo.participantB.shouldStakeUSDCAmount;
               stakeVaultSolanaAddress = ?stakeVaultSolanaAddress;
               stakeTimestamp = ?participantStakeTimestamp;
             }
@@ -253,7 +218,7 @@ actor Guarantee {
           };
           case (?stakedTimestamp) {
             let now : Nat = (Int.abs(Time.now()) / 1_000_000_000);
-            if (now > stakedTimestamp + txInfo.tradeDuration) {
+            if (now > (stakedTimestamp + txInfo.tradeDuration)) {
               transaction := ?{
                 txInfo with
                 status = #Timeout;
@@ -332,12 +297,18 @@ actor Guarantee {
 
         let isParticipantAZeroStake = txInfo.participantA.shouldStakeUSDCAmount == 0;
         let isParticipantBZeroStake = txInfo.participantB.shouldStakeUSDCAmount == 0;
+        let isParticipantAZeroWithdrawable = txInfo.participantA.withdrawableUSDCAmount == 0;
+        let isParticipantBZeroWithdrawable = txInfo.participantB.withdrawableUSDCAmount == 0;
         let isASettled = switch (updatedTxInfo.participantA.settleTimestamp) {
-          case (null) { isParticipantAZeroStake };
+          case (null) {
+            isParticipantAZeroStake or isParticipantAZeroWithdrawable;
+          };
           case (_) { true };
         };
         let isBSettled = switch (updatedTxInfo.participantB.settleTimestamp) {
-          case (null) { isParticipantBZeroStake };
+          case (null) {
+            isParticipantBZeroStake or isParticipantBZeroWithdrawable;
+          };
           case (_) { true };
         };
 
@@ -380,7 +351,7 @@ actor Guarantee {
           };
           case (?stakedTimestamp) {
             let now : Nat = (Int.abs(Time.now()) / 1_000_000_000);
-            if (now > stakedTimestamp + txInfo.tradeDuration) {
+            if (now > (stakedTimestamp + txInfo.tradeDuration)) {
               transaction := ?{
                 txInfo with
                 status = #Timeout;
@@ -431,8 +402,8 @@ actor Guarantee {
 
   public shared func resolveDispute(
     comments : Text,
-    participantAWithdrawablePercentage : Nat,
-    participantBWithdrawablePercentage : Nat,
+    participantAWithdrawableUSDCAmount : Nat,
+    participantBWithdrawableUSDCAmount : Nat,
     arbitratorResolveTimestamp : Nat,
     arbitratorSignature : Text,
   ) : async () {
@@ -445,7 +416,13 @@ actor Guarantee {
           throw Error.reject("Transaction is not in Disputing status");
         };
 
-        if (not verifyResolveSignature(comments, participantAWithdrawablePercentage, participantBWithdrawablePercentage, arbitratorResolveTimestamp, arbitratorSignature)) {
+        if (
+          (participantAWithdrawableUSDCAmount + participantBWithdrawableUSDCAmount) > (txInfo.participantA.shouldStakeUSDCAmount + txInfo.participantB.shouldStakeUSDCAmount)
+        ) {
+          throw Error.reject("Total withdrawable amount exceeds total staked amount");
+        };
+
+        if (not verifyResolveSignature(participantAWithdrawableUSDCAmount, participantBWithdrawableUSDCAmount, arbitratorResolveTimestamp, arbitratorSignature)) {
           throw Error.reject("Invalid signature");
         };
 
@@ -456,16 +433,143 @@ actor Guarantee {
           comments = comments;
           participantA = {
             txInfo.participantA with
-            withdrawablePercentage = participantAWithdrawablePercentage;
+            withdrawableUSDCAmount = participantAWithdrawableUSDCAmount;
           };
           participantB = {
             txInfo.participantB with
-            withdrawablePercentage = participantBWithdrawablePercentage;
+            withdrawableUSDCAmount = participantBWithdrawableUSDCAmount;
           };
           resolvedTimestamp = ?now;
         };
       };
     };
+  };
+
+  // Base58 character set
+  private let ALPHABET : [Char] = [
+    '1',
+    '2',
+    '3',
+    '4',
+    '5',
+    '6',
+    '7',
+    '8',
+    '9',
+    'A',
+    'B',
+    'C',
+    'D',
+    'E',
+    'F',
+    'G',
+    'H',
+    'J',
+    'K',
+    'L',
+    'M',
+    'N',
+    'P',
+    'Q',
+    'R',
+    'S',
+    'T',
+    'U',
+    'V',
+    'W',
+    'X',
+    'Y',
+    'Z',
+    'a',
+    'b',
+    'c',
+    'd',
+    'e',
+    'f',
+    'g',
+    'h',
+    'i',
+    'j',
+    'k',
+    'm',
+    'n',
+    'o',
+    'p',
+    'q',
+    'r',
+    's',
+    't',
+    'u',
+    'v',
+    'w',
+    'x',
+    'y',
+    'z',
+  ];
+
+  // Convert character to Base58 index
+  private func charToIndex(c : Char) : ?Nat {
+    for (i in Iter.range(0, ALPHABET.size() - 1)) {
+      if (ALPHABET[i] == c) {
+        return ?i;
+      };
+    };
+    return null;
+  };
+
+  // Base58 decoding function
+  private func base58ToBytes(text : Text) : [Nat8] {
+    let textChars = Text.toIter(text);
+    var result : [Nat8] = [];
+    var leadingOnes = 0;
+
+    // Process leading '1's (corresponding to leading 0 bytes)
+    label l for (c in textChars) {
+      if (c == '1') {
+        leadingOnes += 1;
+      } else {
+        break l;
+      };
+    };
+
+    // Add leading 0 bytes
+    if (leadingOnes > 0) {
+      result := Array.tabulate<Nat8>(leadingOnes, func(_) = 0);
+    };
+
+    // Decode remaining characters
+    let chars = Text.toArray(text);
+    var acc : Nat = 0;
+    var accLen = 0;
+
+    for (i in Iter.range(leadingOnes, chars.size() - 1)) {
+      let c = chars[i];
+      switch (charToIndex(c)) {
+        case (?idx) {
+          acc := acc * 58 + idx;
+          accLen += 1;
+
+          // Extract a byte after processing several characters
+          if (accLen >= 2) {
+            let b = Nat8.fromNat(acc % 256);
+            acc := acc / 256;
+            accLen -= 1;
+            result := Array.append(result, [b]);
+          };
+        };
+        case (null) {
+          // Ignore invalid characters
+        };
+      };
+    };
+
+    // Process remaining accumulator value
+    if (accLen > 0) {
+      let b = Nat8.fromNat(acc);
+      result := Array.append(result, [b]);
+    };
+
+    return result;
   };
 
   private func verifyStakeSignature(
@@ -474,8 +578,17 @@ actor Guarantee {
     participantStakeTimestamp : Nat,
     verifierSignature : Text,
   ) : Bool {
-    // TODO: verify signature
-    true;
+    switch (transaction) {
+      case (null) { return false };
+      case (?txInfo) {
+        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
+        let message = thisCanisterPrincipalText # "ConfirmStake" # stakeVaultSolanaAddress # participantSolanaAddress # natToText(participantStakeTimestamp);
+        let messageBytes = textToBytes(message);
+        let signatureBytes = base58ToBytes(verifierSignature);
+        let publicKeyBytes = base58ToBytes(txInfo.verifierSolanaAddress);
+        return NACL.SIGN.DETACHED.verify(messageBytes, signatureBytes, publicKeyBytes);
+      };
+    };
   };
 
   private func verifyTradeSignature(
@@ -484,8 +597,26 @@ actor Guarantee {
     participantASignature : Text,
     participantBSignature : Text,
   ) : Bool {
-    // TODO: verify signature
-    true;
+    switch (transaction) {
+      case (null) { return false };
+      case (?txInfo) {
+        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
+
+        let messageA = thisCanisterPrincipalText # "ConfirmTrade" # natToText(participantATimestamp);
+        let messageABytes = textToBytes(messageA);
+        let signatureABytes = base58ToBytes(participantASignature);
+        let publicKeyABytes = base58ToBytes(txInfo.participantA.participantSolanaAddress);
+
+        let messageB = thisCanisterPrincipalText # "ConfirmTrade" # natToText(participantBTimestamp);
+        let messageBBytes = textToBytes(messageB);
+        let signatureBBytes = base58ToBytes(participantBSignature);
+        let publicKeyBBytes = base58ToBytes(txInfo.participantB.participantSolanaAddress);
+
+        let isValidA = NACL.SIGN.DETACHED.verify(messageABytes, signatureABytes, publicKeyABytes);
+        let isValidB = NACL.SIGN.DETACHED.verify(messageBBytes, signatureBBytes, publicKeyBBytes);
+        return isValidA and isValidB;
+      };
+    };
   };
 
   private func verifySettleSignature(
@@ -494,8 +625,17 @@ actor Guarantee {
     participantSettleTimestamp : Nat,
     verifierSignature : Text,
   ) : Bool {
-    // TODO: verify signature
-    true;
+    switch (transaction) {
+      case (null) { return false };
+      case (?txInfo) {
+        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
+        let message = thisCanisterPrincipalText # "ConfirmSettle" # stakeVaultSolanaAddress # participantSolanaAddress # natToText(participantSettleTimestamp);
+        let messageBytes = textToBytes(message);
+        let signatureBytes = base58ToBytes(verifierSignature);
+        let publicKeyBytes = base58ToBytes(txInfo.verifierSolanaAddress);
+        return NACL.SIGN.DETACHED.verify(messageBytes, signatureBytes, publicKeyBytes);
+      };
+    };
   };
 
   private func verifyDisputeSignature(
@@ -503,22 +643,63 @@ actor Guarantee {
     participantTimestamp : Nat,
     participantSignature : Text,
   ) : Bool {
-    // TODO: verify signature
-    true;
+    switch (transaction) {
+      case (null) { return false };
+      case (?txInfo) {
+        if (not (Text.equal(participantSolanaAddress, txInfo.participantA.participantSolanaAddress) or Text.equal(participantSolanaAddress, txInfo.participantB.participantSolanaAddress))) {
+          return false;
+        };
+        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
+        let message = thisCanisterPrincipalText # "InitiateDispute" # natToText(participantTimestamp);
+        let messageBytes = textToBytes(message);
+        let signatureBytes = base58ToBytes(participantSignature);
+        let publicKeyBytes = base58ToBytes(participantSolanaAddress);
+        return NACL.SIGN.DETACHED.verify(messageBytes, signatureBytes, publicKeyBytes);
+      };
+    };
   };
 
   private func verifyResolveSignature(
-    comments : Text,
-    participantAWithdrawablePercentage : Nat,
-    participantBWithdrawablePercentage : Nat,
+
+    participantAWithdrawableUSDCAmount : Nat,
+    participantBWithdrawableUSDCAmount : Nat,
     arbitratorResolveTimestamp : Nat,
     arbitratorSignature : Text,
   ) : Bool {
-    // TODO: verify signature
-    true;
+    switch (transaction) {
+      case (null) { return false };
+      case (?txInfo) {
+        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
+        let message = thisCanisterPrincipalText #
+        "ResolveDispute" #
+        natToText(participantAWithdrawableUSDCAmount) #
+        natToText(participantBWithdrawableUSDCAmount) #
+        natToText(arbitratorResolveTimestamp);
+        let messageBytes = textToBytes(message);
+        let signatureBytes = base58ToBytes(arbitratorSignature);
+        let publicKeyBytes = base58ToBytes(txInfo.arbitratorSolanaAddress);
+        return NACL.SIGN.DETACHED.verify(messageBytes, signatureBytes, publicKeyBytes);
+      };
+    };
   };
 
-  public query func getTransactionStatus() : async ?Text {
+  private func natToText(n : Nat) : Text {
+    Nat.toText(n);
+  };
+
+  private func textToBytes(x : Text) : [Nat8] {
+    Blob.toArray(Text.encodeUtf8(x));
+  };
+
+  private func privateGetThisCanisterPrincipalText() : Text {
+    Principal.toText(Principal.fromActor(Guarantee));
+  };
+
+  public query func getThisCanisterPrincipalText() : async Text {
+    privateGetThisCanisterPrincipalText();
+  };
+
+  public query func getTransactionStatusText() : async ?Text {
     switch (transaction) {
       case (null) { null };
       case (?txInfo) {
@@ -539,9 +720,5 @@ actor Guarantee {
 
   public query func getTransactionDetails() : async ?TransactionInfo {
     transaction;
-  };
-
-  public query func getThisCanisterPrincipal() : async Principal {
-    Principal.fromActor(Guarantee);
   };
 };

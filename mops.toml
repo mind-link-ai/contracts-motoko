@@ -1,0 +1,3 @@
+[dependencies]
+base = "0.14.9"
+tweetnacl = "1.1.1"
