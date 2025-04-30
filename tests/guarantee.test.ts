@@ -41,7 +41,7 @@ async function runTests() {
 
     const agent = new HttpAgent({ host: "https://icp0.io" });
     const actor = Actor.createActor(idlFactory, { agent, canisterId });
-    const principal = await actor.getThisCanisterPrincipal();
+    const principal = await actor.getThisCanisterPrincipalText();
     console.log("Contract Principal:", principal);
 
     console.log("\n1. Testing normal flow");
@@ -71,7 +71,7 @@ async function testHappyPath(actor: any) {
     config.stakeDuration,
     config.tradeDuration
   );
-  let status = await actor.getTransactionStatus();
+  let status = await actor.getTransactionStatusText();
   console.log("Init status:", status);
   let details = await actor.getTransactionDetails();
   console.log("Init details:", details);
@@ -82,7 +82,7 @@ async function testHappyPath(actor: any) {
     getCurrentTimestampInSeconds(),
     mockSignature
   );
-  status = await actor.getTransactionStatus();
+  status = await actor.getTransactionStatusText();
   console.log("Participant A staking status:", status);
 
   await actor.confirmStakingComplete(
@@ -91,12 +91,12 @@ async function testHappyPath(actor: any) {
     getCurrentTimestampInSeconds(),
     mockSignature
   );
-  status = await actor.getTransactionStatus();
+  status = await actor.getTransactionStatusText();
   console.log("Participant B staking status:", status);
 
   const now = getCurrentTimestampInSeconds();
   await actor.confirmTradingComplete(now, now, mockSignature, mockSignature);
-  status = await actor.getTransactionStatus();
+  status = await actor.getTransactionStatusText();
   console.log("Trading complete status:", status);
 
   await actor.confirmSettlingComplete(
@@ -105,7 +105,7 @@ async function testHappyPath(actor: any) {
     getCurrentTimestampInSeconds(),
     mockSignature
   );
-  status = await actor.getTransactionStatus();
+  status = await actor.getTransactionStatusText();
   console.log("Participant A settlement status:", status);
 
   await actor.confirmSettlingComplete(
@@ -114,7 +114,7 @@ async function testHappyPath(actor: any) {
     getCurrentTimestampInSeconds(),
     mockSignature
   );
-  status = await actor.getTransactionStatus();
+  status = await actor.getTransactionStatusText();
   console.log("Participant B settlement status:", status);
 
   details = await actor.getTransactionDetails();
@@ -140,7 +140,7 @@ async function testTimeoutScenario(actor: any) {
     getCurrentTimestampInSeconds(),
     mockSignature
   );
-  let status = await actor.getTransactionStatus();
+  let status = await actor.getTransactionStatusText();
   console.log("Stake timeout status:", status);
   let details = await actor.getTransactionDetails();
   console.log("Stake timeout details:", details);
@@ -172,7 +172,7 @@ async function testTimeoutScenario(actor: any) {
 
   const now = getCurrentTimestampInSeconds();
   await actor.confirmTradingComplete(now, now, mockSignature, mockSignature);
-  status = await actor.getTransactionStatus();
+  status = await actor.getTransactionStatusText();
   console.log("Trade timeout status:", status);
   details = await actor.getTransactionDetails();
   console.log("Stake timeout details:", details);
@@ -217,7 +217,7 @@ async function testDisputeScenario(actor: any) {
     getCurrentTimestampInSeconds(),
     mockSignature
   );
-  let status = await actor.getTransactionStatus();
+  let status = await actor.getTransactionStatusText();
   console.log("Dispute resolved status:", status);
 
   await actor.confirmSettlingComplete(
@@ -232,7 +232,7 @@ async function testDisputeScenario(actor: any) {
     getCurrentTimestampInSeconds(),
     mockSignature
   );
-  status = await actor.getTransactionStatus();
+  status = await actor.getTransactionStatusText();
   console.log("Dispute settlement status:", status);
 }
 
