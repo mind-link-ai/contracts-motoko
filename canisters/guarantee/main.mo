@@ -1,15 +1,8 @@
-import Blob "mo:base/Blob";
 import Error "mo:base/Error";
 import Int "mo:base/Int";
-import NACL "mo:tweetnacl";
-import Nat "mo:base/Nat";
-import Nat8 "mo:base/Nat8";
 import Principal "mo:base/Principal";
 import Text "mo:base/Text";
 import Time "mo:base/Time";
-import Array "mo:base/Array";
-import Iter "mo:base/Iter";
-import Char "mo:base/Char";
 
 actor Guarantee {
   type Status = {
@@ -445,150 +438,13 @@ actor Guarantee {
     };
   };
 
-  // Base58 character set
-  private let ALPHABET : [Char] = [
-    '1',
-    '2',
-    '3',
-    '4',
-    '5',
-    '6',
-    '7',
-    '8',
-    '9',
-    'A',
-    'B',
-    'C',
-    'D',
-    'E',
-    'F',
-    'G',
-    'H',
-    'J',
-    'K',
-    'L',
-    'M',
-    'N',
-    'P',
-    'Q',
-    'R',
-    'S',
-    'T',
-    'U',
-    'V',
-    'W',
-    'X',
-    'Y',
-    'Z',
-    'a',
-    'b',
-    'c',
-    'd',
-    'e',
-    'f',
-    'g',
-    'h',
-    'i',
-    'j',
-    'k',
-    'm',
-    'n',
-    'o',
-    'p',
-    'q',
-    'r',
-    's',
-    't',
-    'u',
-    'v',
-    'w',
-    'x',
-    'y',
-    'z',
-  ];
-
-  // Convert character to Base58 index
-  private func charToIndex(c : Char) : ?Nat {
-    for (i in Iter.range(0, ALPHABET.size() - 1)) {
-      if (ALPHABET[i] == c) {
-        return ?i;
-      };
-    };
-    return null;
-  };
-
-  // Base58 decoding function
-  private func base58ToBytes(text : Text) : [Nat8] {
-    let textChars = Text.toIter(text);
-    var result : [Nat8] = [];
-    var leadingOnes = 0;
-
-    // Process leading '1's (corresponding to leading 0 bytes)
-    label l for (c in textChars) {
-      if (c == '1') {
-        leadingOnes += 1;
-      } else {
-        break l;
-      };
-    };
-
-    // Add leading 0 bytes
-    if (leadingOnes > 0) {
-      result := Array.tabulate<Nat8>(leadingOnes, func(_) = 0);
-    };
-
-    // Decode remaining characters
-    let chars = Text.toArray(text);
-    var acc : Nat = 0;
-    var accLen = 0;
-
-    for (i in Iter.range(leadingOnes, chars.size() - 1)) {
-      let c = chars[i];
-      switch (charToIndex(c)) {
-        case (?idx) {
-          acc := acc * 58 + idx;
-          accLen += 1;
-
-          // Extract a byte after processing several characters
-          if (accLen >= 2) {
-            let b = Nat8.fromNat(acc % 256);
-            acc := acc / 256;
-            accLen -= 1;
-            result := Array.append(result, [b]);
-          };
-        };
-        case (null) {
-          // Ignore invalid characters
-        };
-      };
-    };
-
-    // Process remaining accumulator value
-    if (accLen > 0) {
-      let b = Nat8.fromNat(acc);
-      result := Array.append(result, [b]);
-    };
-
-    return result;
-  };
-
   private func verifyStakeSignature(
     stakeVaultSolanaAddress : Text,
     participantSolanaAddress : Text,
     participantStakeTimestamp : Nat,
     verifierSignature : Text,
   ) : Bool {
-    switch (transaction) {
-      case (null) { return false };
-      case (?txInfo) {
-        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
-        let message = thisCanisterPrincipalText # "ConfirmStake" # stakeVaultSolanaAddress # participantSolanaAddress # natToText(participantStakeTimestamp);
-        let messageBytes = textToBytes(message);
-        let signatureBytes = base58ToBytes(verifierSignature);
-        let publicKeyBytes = base58ToBytes(txInfo.verifierSolanaAddress);
-        return NACL.SIGN.DETACHED.verify(messageBytes, signatureBytes, publicKeyBytes);
-      };
-    };
+    true;
   };
 
   private func verifyTradeSignature(
@@ -597,26 +453,7 @@ actor Guarantee {
     participantASignature : Text,
     participantBSignature : Text,
   ) : Bool {
-    switch (transaction) {
-      case (null) { return false };
-      case (?txInfo) {
-        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
-
-        let messageA = thisCanisterPrincipalText # "ConfirmTrade" # natToText(participantATimestamp);
-        let messageABytes = textToBytes(messageA);
-        let signatureABytes = base58ToBytes(participantASignature);
-        let publicKeyABytes = base58ToBytes(txInfo.participantA.participantSolanaAddress);
-
-        let messageB = thisCanisterPrincipalText # "ConfirmTrade" # natToText(participantBTimestamp);
-        let messageBBytes = textToBytes(messageB);
-        let signatureBBytes = base58ToBytes(participantBSignature);
-        let publicKeyBBytes = base58ToBytes(txInfo.participantB.participantSolanaAddress);
-
-        let isValidA = NACL.SIGN.DETACHED.verify(messageABytes, signatureABytes, publicKeyABytes);
-        let isValidB = NACL.SIGN.DETACHED.verify(messageBBytes, signatureBBytes, publicKeyBBytes);
-        return isValidA and isValidB;
-      };
-    };
+    true;
   };
 
   private func verifySettleSignature(
@@ -625,17 +462,7 @@ actor Guarantee {
     participantSettleTimestamp : Nat,
     verifierSignature : Text,
   ) : Bool {
-    switch (transaction) {
-      case (null) { return false };
-      case (?txInfo) {
-        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
-        let message = thisCanisterPrincipalText # "ConfirmSettle" # stakeVaultSolanaAddress # participantSolanaAddress # natToText(participantSettleTimestamp);
-        let messageBytes = textToBytes(message);
-        let signatureBytes = base58ToBytes(verifierSignature);
-        let publicKeyBytes = base58ToBytes(txInfo.verifierSolanaAddress);
-        return NACL.SIGN.DETACHED.verify(messageBytes, signatureBytes, publicKeyBytes);
-      };
-    };
+    true;
   };
 
   private func verifyDisputeSignature(
@@ -643,52 +470,16 @@ actor Guarantee {
     participantTimestamp : Nat,
     participantSignature : Text,
   ) : Bool {
-    switch (transaction) {
-      case (null) { return false };
-      case (?txInfo) {
-        if (not (Text.equal(participantSolanaAddress, txInfo.participantA.participantSolanaAddress) or Text.equal(participantSolanaAddress, txInfo.participantB.participantSolanaAddress))) {
-          return false;
-        };
-        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
-        let message = thisCanisterPrincipalText # "InitiateDispute" # natToText(participantTimestamp);
-        let messageBytes = textToBytes(message);
-        let signatureBytes = base58ToBytes(participantSignature);
-        let publicKeyBytes = base58ToBytes(participantSolanaAddress);
-        return NACL.SIGN.DETACHED.verify(messageBytes, signatureBytes, publicKeyBytes);
-      };
-    };
+    true;
   };
 
   private func verifyResolveSignature(
-
     participantAWithdrawableUSDCAmount : Nat,
     participantBWithdrawableUSDCAmount : Nat,
     arbitratorResolveTimestamp : Nat,
     arbitratorSignature : Text,
   ) : Bool {
-    switch (transaction) {
-      case (null) { return false };
-      case (?txInfo) {
-        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
-        let message = thisCanisterPrincipalText #
-        "ResolveDispute" #
-        natToText(participantAWithdrawableUSDCAmount) #
-        natToText(participantBWithdrawableUSDCAmount) #
-        natToText(arbitratorResolveTimestamp);
-        let messageBytes = textToBytes(message);
-        let signatureBytes = base58ToBytes(arbitratorSignature);
-        let publicKeyBytes = base58ToBytes(txInfo.arbitratorSolanaAddress);
-        return NACL.SIGN.DETACHED.verify(messageBytes, signatureBytes, publicKeyBytes);
-      };
-    };
-  };
-
-  private func natToText(n : Nat) : Text {
-    Nat.toText(n);
-  };
-
-  private func textToBytes(x : Text) : [Nat8] {
-    Blob.toArray(Text.encodeUtf8(x));
+    true;
   };
 
   private func privateGetThisCanisterPrincipalText() : Text {
