@@ -445,6 +445,7 @@ actor Guarantee {
     participantStakeTimestamp : Nat,
     verifierSignature : Text,
   ) : Bool {
+    // TODO: verify signature
     true;
   };
 
@@ -454,6 +455,7 @@ actor Guarantee {
     participantASignature : Text,
     participantBSignature : Text,
   ) : Bool {
+    // TODO: verify signature
     true;
   };
 
@@ -463,6 +465,7 @@ actor Guarantee {
     participantSettleTimestamp : Nat,
     verifierSignature : Text,
   ) : Bool {
+    // TODO: verify signature
     true;
   };
 
@@ -471,6 +474,7 @@ actor Guarantee {
     participantTimestamp : Nat,
     participantSignature : Text,
   ) : Bool {
+    // TODO: verify signature
     true;
   };
 
@@ -480,6 +484,7 @@ actor Guarantee {
     arbitratorResolveTimestamp : Nat,
     arbitratorSignature : Text,
   ) : Bool {
+    // TODO: verify signature
     true;
   };
 
