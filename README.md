@@ -1,6 +1,6 @@
 `sh -ci "$(curl -fsSL https://internetcomputer.org/install.sh)"`
 
-`npm i -g pnpm mops`
+`npm i -g pnpm ic-mops`
 
 `pnpm i`
 

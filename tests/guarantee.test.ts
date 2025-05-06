@@ -93,6 +93,17 @@ async function runTests() {
 }
 
 async function testHappyPath(actor: any, principal: string) {
+  console.log("=== happy path begins ===");
+  console.log("=== step: init ===");
+  console.log("party A address: " + config.participantA.solanaAddress);
+  console.log("party B address: " + config.participantB.solanaAddress);
+  console.log("party A stake amount: " + config.participantA.shouldStakeAmount);
+  console.log("party B stake amount: " + config.participantB.shouldStakeAmount);
+  console.log("verifier address: " + config.verifier.solanaAddress);
+  console.log("arbitrator address: " + config.arbitrator.solanaAddress);
+  console.log("stake duration: " + config.stakeDuration);
+  console.log("trade duration: " + config.tradeDuration);
+  console.log("");
   await actor.initialize(
     "Normal transaction test",
     config.participantA.solanaAddress,
@@ -114,6 +125,12 @@ async function testHappyPath(actor: any, principal: string) {
   const stakeMessageA = `${principal}-Staking-${config.stakeVault.solanaAddress}-${config.participantA.solanaAddress}-${participantAStakeTimestamp}`;
   const stakeSignatureA = signMessage(stakeMessageA, config.verifier.secretKey);
 
+  console.log("=== step: stake by party A ===");
+  console.log("vault address: " + config.stakeVault.solanaAddress);
+  console.log("party A address: " + config.participantA.solanaAddress);
+  console.log("party A stake ts: " + participantAStakeTimestamp);
+  console.log("party A sig: " + stakeSignatureA);
+  console.log("");
   await actor.confirmStakingComplete(
     config.stakeVault.solanaAddress,
     config.participantA.solanaAddress,
@@ -128,6 +145,12 @@ async function testHappyPath(actor: any, principal: string) {
   const stakeMessageB = `${principal}-Staking-${config.stakeVault.solanaAddress}-${config.participantB.solanaAddress}-${participantBStakeTimestamp}`;
   const stakeSignatureB = signMessage(stakeMessageB, config.verifier.secretKey);
 
+  console.log("=== step: stake by party B ===");
+  console.log("vault address: " + config.stakeVault.solanaAddress);
+  console.log("party B address: " + config.participantB.solanaAddress);
+  console.log("party B stake ts: " + participantBStakeTimestamp);
+  console.log("party B sig: " + stakeSignatureB);
+  console.log("");
   await actor.confirmStakingComplete(
     config.stakeVault.solanaAddress,
     config.participantB.solanaAddress,
@@ -153,6 +176,12 @@ async function testHappyPath(actor: any, principal: string) {
     config.participantB.secretKey
   );
 
+  console.log("=== step: confirm trade ===");
+  console.log("party A trade ts: " + participantATradeTimestamp);
+  console.log("party B trade ts: " + participantBTradeTimestamp);
+  console.log("party A sig: " + tradeSignatureA);
+  console.log("party B sig: " + tradeSignatureB);
+  console.log("");
   await actor.confirmTradingComplete(
     participantATradeTimestamp,
     participantBTradeTimestamp,
@@ -170,6 +199,12 @@ async function testHappyPath(actor: any, principal: string) {
     config.verifier.secretKey
   );
 
+  console.log("=== step: settle A ===");
+  console.log("vault address: " + config.stakeVault.solanaAddress);
+  console.log("party A address: " + config.participantA.solanaAddress);
+  console.log("party A settle ts: " + participantASettleTimestamp);
+  console.log("party A sig: " + settleSignatureA);
+  console.log("");
   await actor.confirmSettlingComplete(
     config.stakeVault.solanaAddress,
     config.participantA.solanaAddress,
@@ -187,6 +222,12 @@ async function testHappyPath(actor: any, principal: string) {
     config.verifier.secretKey
   );
 
+  console.log("=== step: settle A ===");
+  console.log("vault address: " + config.stakeVault.solanaAddress);
+  console.log("party B address: " + config.participantB.solanaAddress);
+  console.log("party B settle ts: " + participantBSettleTimestamp);
+  console.log("party B sig: " + settleSignatureB);
+  console.log("");
   await actor.confirmSettlingComplete(
     config.stakeVault.solanaAddress,
     config.participantB.solanaAddress,
@@ -198,6 +239,7 @@ async function testHappyPath(actor: any, principal: string) {
 
   details = await actor.getTransactionDetails();
   console.log("Final details:", details);
+  console.log("=== happy path ended ===");
 }
 
 async function testTimeoutScenario(actor: any, principal: string) {
