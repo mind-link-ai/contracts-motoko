@@ -4,6 +4,11 @@ import Principal "mo:base/Principal";
 import Text "mo:base/Text";
 import Time "mo:base/Time";
 
+import Base58 "./base58";
+import Blob "mo:base/Blob";
+import NACL "mo:tweetnacl";
+import Nat "mo:base/Nat";
+
 actor Guarantee {
   type Status = {
     #New;
@@ -445,8 +450,17 @@ actor Guarantee {
     participantStakeTimestamp : Nat,
     verifierSignature : Text,
   ) : Bool {
-    // TODO: verify signature
-    true;
+    switch (transaction) {
+      case (null) { return false };
+      case (?txInfo) {
+        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
+        let message = thisCanisterPrincipalText # "-" # "Staking" # "-" # stakeVaultSolanaAddress # "-" # participantSolanaAddress # "-" # Nat.toText(participantStakeTimestamp);
+        let messageBytes = Blob.toArray(Text.encodeUtf8(message));
+        let signatureBytes = Base58.decode(verifierSignature);
+        let publicKeyBytes = Base58.decode(txInfo.verifierSolanaAddress);
+        return NACL.SIGN.DETACHED.verify(messageBytes, signatureBytes, publicKeyBytes);
+      };
+    };
   };
 
   private func verifyTradeSignature(
@@ -455,8 +469,23 @@ actor Guarantee {
     participantASignature : Text,
     participantBSignature : Text,
   ) : Bool {
-    // TODO: verify signature
-    true;
+    switch (transaction) {
+      case (null) { return false };
+      case (?txInfo) {
+        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
+        let messageA = thisCanisterPrincipalText # "-" # "Trading" # "-" # Nat.toText(participantATimestamp);
+        let messageB = thisCanisterPrincipalText # "-" # "Trading" # "-" # Nat.toText(participantBTimestamp);
+        let messageABytes = Blob.toArray(Text.encodeUtf8(messageA));
+        let messageBBytes = Blob.toArray(Text.encodeUtf8(messageB));
+        let signatureABytes = Base58.decode(participantASignature);
+        let signatureBBytes = Base58.decode(participantBSignature);
+        let publicKeyABytes = Base58.decode(txInfo.participantA.participantSolanaAddress);
+        let publicKeyBBytes = Base58.decode(txInfo.participantB.participantSolanaAddress);
+        let isAValid = NACL.SIGN.DETACHED.verify(messageABytes, signatureABytes, publicKeyABytes);
+        let isBValid = NACL.SIGN.DETACHED.verify(messageBBytes, signatureBBytes, publicKeyBBytes);
+        return isAValid and isBValid;
+      };
+    };
   };
 
   private func verifySettleSignature(
@@ -465,8 +494,17 @@ actor Guarantee {
     participantSettleTimestamp : Nat,
     verifierSignature : Text,
   ) : Bool {
-    // TODO: verify signature
-    true;
+    switch (transaction) {
+      case (null) { return false };
+      case (?txInfo) {
+        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
+        let message = thisCanisterPrincipalText # "-" # "Settling" # "-" # stakeVaultSolanaAddress # "-" # participantSolanaAddress # "-" # Nat.toText(participantSettleTimestamp);
+        let messageBytes = Blob.toArray(Text.encodeUtf8(message));
+        let signatureBytes = Base58.decode(verifierSignature);
+        let publicKeyBytes = Base58.decode(txInfo.verifierSolanaAddress);
+        return NACL.SIGN.DETACHED.verify(messageBytes, signatureBytes, publicKeyBytes);
+      };
+    };
   };
 
   private func verifyDisputeSignature(
@@ -474,8 +512,24 @@ actor Guarantee {
     participantTimestamp : Nat,
     participantSignature : Text,
   ) : Bool {
-    // TODO: verify signature
-    true;
+    switch (transaction) {
+      case (null) { return false };
+      case (?txInfo) {
+        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
+        let message = thisCanisterPrincipalText # "-" # "Disputing" # "-" # Nat.toText(participantTimestamp);
+        let messageBytes = Blob.toArray(Text.encodeUtf8(message));
+        let signatureBytes = Base58.decode(participantSignature);
+        if (Text.equal(participantSolanaAddress, txInfo.participantA.participantSolanaAddress)) {
+          let publicKeyBytes = Base58.decode(txInfo.participantA.participantSolanaAddress);
+          return NACL.SIGN.DETACHED.verify(messageBytes, signatureBytes, publicKeyBytes);
+        } else if (Text.equal(participantSolanaAddress, txInfo.participantB.participantSolanaAddress)) {
+          let publicKeyBytes = Base58.decode(txInfo.participantB.participantSolanaAddress);
+          return NACL.SIGN.DETACHED.verify(messageBytes, signatureBytes, publicKeyBytes);
+        } else {
+          return false;
+        };
+      };
+    };
   };
 
   private func verifyResolveSignature(
@@ -484,8 +538,17 @@ actor Guarantee {
     arbitratorResolveTimestamp : Nat,
     arbitratorSignature : Text,
   ) : Bool {
-    // TODO: verify signature
-    true;
+    switch (transaction) {
+      case (null) { return false };
+      case (?txInfo) {
+        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
+        let message = thisCanisterPrincipalText # "-" # "Resolving" # "-" # Nat.toText(participantAWithdrawableUSDCAmount) # "-" # Nat.toText(participantBWithdrawableUSDCAmount) # "-" # Nat.toText(arbitratorResolveTimestamp);
+        let messageBytes = Blob.toArray(Text.encodeUtf8(message));
+        let signatureBytes = Base58.decode(arbitratorSignature);
+        let publicKeyBytes = Base58.decode(txInfo.arbitratorSolanaAddress);
+        return NACL.SIGN.DETACHED.verify(messageBytes, signatureBytes, publicKeyBytes);
+      };
+    };
   };
 
   private func privateGetThisCanisterPrincipalText() : Text {
