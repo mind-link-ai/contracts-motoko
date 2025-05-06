@@ -222,7 +222,7 @@ async function testHappyPath(actor: any, principal: string) {
     config.verifier.secretKey
   );
 
-  console.log("=== step: settle A ===");
+  console.log("=== step: settle B ===");
   console.log("vault address: " + config.stakeVault.solanaAddress);
   console.log("party B address: " + config.participantB.solanaAddress);
   console.log("party B settle ts: " + participantBSettleTimestamp);
