@@ -62,54 +62,54 @@ actor Guarantee {
     stakeDuration : Nat,
     tradeDuration : Nat,
   ) : async () {
-    // for dev test
-    // switch (transaction) {
-    //   case (null) {
-    if (participantAShouldStakeUSDCAmount == 0 and participantBShouldStakeUSDCAmount == 0) {
-      throw Error.reject("At least one participant should stake amount greater than 0");
-    };
+    // Annotate the switch case when running the test script
+    switch (transaction) {
+      case (null) {
+        if (participantAShouldStakeUSDCAmount == 0 and participantBShouldStakeUSDCAmount == 0) {
+          throw Error.reject("At least one participant should stake amount greater than 0");
+        };
 
-    let participantA : ParticipantInfo = {
-      participantSolanaAddress = participantASolanaAddress;
-      shouldStakeUSDCAmount = participantAShouldStakeUSDCAmount;
-      withdrawableUSDCAmount = 0;
-      stakeVaultSolanaAddress = null;
-      stakeTimestamp = null;
-      disputeTimestamp = null;
-      settleTimestamp = null;
-    };
+        let participantA : ParticipantInfo = {
+          participantSolanaAddress = participantASolanaAddress;
+          shouldStakeUSDCAmount = participantAShouldStakeUSDCAmount;
+          withdrawableUSDCAmount = 0;
+          stakeVaultSolanaAddress = null;
+          stakeTimestamp = null;
+          disputeTimestamp = null;
+          settleTimestamp = null;
+        };
 
-    let participantB : ParticipantInfo = {
-      participantSolanaAddress = participantBSolanaAddress;
-      shouldStakeUSDCAmount = participantBShouldStakeUSDCAmount;
-      withdrawableUSDCAmount = 0;
-      stakeVaultSolanaAddress = null;
-      stakeTimestamp = null;
-      settleTimestamp = null;
-      disputeTimestamp = null;
-    };
+        let participantB : ParticipantInfo = {
+          participantSolanaAddress = participantBSolanaAddress;
+          shouldStakeUSDCAmount = participantBShouldStakeUSDCAmount;
+          withdrawableUSDCAmount = 0;
+          stakeVaultSolanaAddress = null;
+          stakeTimestamp = null;
+          settleTimestamp = null;
+          disputeTimestamp = null;
+        };
 
-    transaction := ?{
-      status = #New;
-      comments = comments;
-      participantA = participantA;
-      participantB = participantB;
-      verifierSolanaAddress = verifierSolanaAddress;
-      arbitratorSolanaAddress = arbitratorSolanaAddress;
-      stakeDuration = stakeDuration;
-      tradeDuration = tradeDuration;
-      newTimestamp = (Int.abs(Time.now()) / 1_000_000_000);
-      stakedTimestamp = null;
-      tradedTimestamp = null;
-      timeoutTimestamp = null;
-      resolvedTimestamp = null;
-      settledTimestamp = null;
+        transaction := ?{
+          status = #New;
+          comments = comments;
+          participantA = participantA;
+          participantB = participantB;
+          verifierSolanaAddress = verifierSolanaAddress;
+          arbitratorSolanaAddress = arbitratorSolanaAddress;
+          stakeDuration = stakeDuration;
+          tradeDuration = tradeDuration;
+          newTimestamp = (Int.abs(Time.now()) / 1_000_000_000);
+          stakedTimestamp = null;
+          tradedTimestamp = null;
+          timeoutTimestamp = null;
+          resolvedTimestamp = null;
+          settledTimestamp = null;
+        };
+      };
+      case (_) {
+        throw Error.reject("Already initialized");
+      };
     };
-    // };
-    // case (_) {
-    //   throw Error.reject("Already initialized");
-    // };
-    // };
   };
 
   public shared func confirmStakingComplete(
