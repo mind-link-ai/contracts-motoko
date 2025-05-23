@@ -1,0 +1,37 @@
+{
+    "version": "0.1.0",
+    "generatedAt": "1747994400",
+    "transactionId": "1234567890",
+    "resolutionId": "1234567890",
+    "market": "STEAM_P2P_MARKET",
+    "buyerAddress": "",
+    "sellerAddress": "",
+    "arbitratorAddress": "",
+    "assetType": "USDC",
+    "assetAmount": 1000000000,
+    "resolution": "Refund both",
+    "resolvedAt": "1747995400",
+    "reasonCode": "ALREADY_CANCELLED",
+    "proofs": [
+        {
+            "type": "screenshot",
+            "url": "https://evidence.storage.com/tx123/screen1.jpg",
+            "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+            "type": "zktls",
+            "sha256": "7d891234567890abcdef1234567890abcdef1234567890abcdef1234567890ab"
+        },
+        {
+            "type": "teetls",
+            "sha256": "7d891234567890abcdef1234567890abcdef1234567890abcdef1234567890ab"
+        },
+        {
+            "type": "chat",
+            "url": "https://evidence.storage.com/tx123/chat_history.json",
+            "sha256": "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6a7b8c9d0"
+        }
+    ],
+    "payloadHash": "f58d817f34554d6c43c251fc5f0b2e79d2f897439999abcdef1234567890abc",
+    "sigAlgo": "ed25519"
+}
