@@ -6,6 +6,8 @@
 
 `mops i`
 
-`pnpm deploy:playground`
+`dfx start`
+
+`pnpm deploy:local`
 
 `pnpm test:guarantee`

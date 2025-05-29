@@ -467,8 +467,9 @@ actor Guarantee {
           throw Error.reject("Invalid signature");
         };
 
-        let host : Text = "api.example.com";
-        let url = "https://" # host # "/proof/" # transactionId;
+        // let host : Text = "api.example.com";
+        // let url = "https://" # host # "/proof/" # transactionId;
+        let url = "https://gist.githubusercontent.com/0xbiubiubiu/ea4724b045e81e440f1c0866939567b7/raw/5589364b6ea6f4d7426fcbece86838987bc553e9/mock-proof-data.json";
         let request_headers = [
           { name = "User-Agent"; value = "guarantee-canister" },
         ];
@@ -629,8 +630,9 @@ actor Guarantee {
         throw Error.reject("Transaction not found");
       };
       case (?txInfo) {
-        let host : Text = "api.example.com";
-        let url = "https://" # host # "/proof/" # transactionId;
+        // let host : Text = "api.example.com";
+        // let url = "https://" # host # "/proof/" # transactionId;
+        let url = "https://gist.githubusercontent.com/0xbiubiubiu/ea4724b045e81e440f1c0866939567b7/raw/5589364b6ea6f4d7426fcbece86838987bc553e9/mock-proof-data.json";
         let request_headers = [
           { name = "User-Agent"; value = "guarantee-canister" },
         ];
