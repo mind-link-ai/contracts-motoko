@@ -1,3 +1,8 @@
 [dependencies]
-base = "0.14.9"
+base = "0.14.12"
 tweetnacl = "1.1.1"
+sha2 = "0.1.4"
+
+[toolchain]
+wasmtime = "33.0.0"
+moc = "0.14.12"

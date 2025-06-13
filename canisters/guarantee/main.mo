@@ -12,7 +12,8 @@ import Nat "mo:base/Nat";
 import HashMap "mo:base/HashMap";
 import IC "ic:aaaaa-aa";
 import Iter "mo:base/Iter";
-import Nat32 "mo:base/Nat32";
+import Sha256 "mo:sha2/Sha256";
+import Array "mo:base/Array";
 
 actor Guarantee {
   type Status = {
@@ -25,6 +26,11 @@ actor Guarantee {
     #Resolved;
     #Settling;
     #Settled;
+  };
+
+  type EscrowMode = {
+    #Mutual;
+    #Settlement;
   };
 
   type ParticipantInfo = {
@@ -40,6 +46,7 @@ actor Guarantee {
   type TransactionInfo = {
     id : Text;
     status : Status;
+    escrowMode : EscrowMode;
     comments : Text;
     participantA : ParticipantInfo;
     participantB : ParticipantInfo;
@@ -74,6 +81,7 @@ actor Guarantee {
   };
 
   public shared func initialize(
+    escrowMode : EscrowMode,
     comments : Text,
     participantASolanaAddress : Text,
     participantBSolanaAddress : Text,
@@ -114,6 +122,7 @@ actor Guarantee {
     let transaction : TransactionInfo = {
       id = transactionId;
       status = #New;
+      escrowMode = escrowMode;
       comments = comments;
       participantA = participantA;
       participantB = participantB;
@@ -269,17 +278,28 @@ actor Guarantee {
               throw Error.reject("Invalid signature");
             };
 
-            let updatedTxInfo = {
-              txInfo with
-              status = #Traded;
-              tradedTimestamp = ?now;
-              participantA = {
-                txInfo.participantA with
-                withdrawableUSDCAmount = 0;
+            let updatedTxInfo = switch (txInfo.escrowMode) {
+              case (#Mutual) {
+                {
+                  txInfo with
+                  status = #Traded;
+                  tradedTimestamp = ?now;
+                };
               };
-              participantB = {
-                txInfo.participantB with
-                withdrawableUSDCAmount = txInfo.participantB.withdrawableUSDCAmount + txInfo.participantA.withdrawableUSDCAmount;
+              case (#Settlement) {
+                {
+                  txInfo with
+                  status = #Traded;
+                  tradedTimestamp = ?now;
+                  participantA = {
+                    txInfo.participantA with
+                    withdrawableUSDCAmount = 0;
+                  };
+                  participantB = {
+                    txInfo.participantB with
+                    withdrawableUSDCAmount = txInfo.participantB.withdrawableUSDCAmount + txInfo.participantA.withdrawableUSDCAmount;
+                  };
+                };
               };
             };
             transactions.put(transactionId, updatedTxInfo);
@@ -469,10 +489,14 @@ actor Guarantee {
 
         // let host : Text = "api.example.com";
         // let url = "https://" # host # "/proof/" # transactionId;
-        let url = "https://gist.githubusercontent.com/0xbiubiubiu/ea4724b045e81e440f1c0866939567b7/raw/5589364b6ea6f4d7426fcbece86838987bc553e9/mock-proof-data.json";
+
+        // mock proof data
+        let host : Text = "raw.githubusercontent.com/mind-link-ai/guarantee-canister-proof-mock/refs/heads/main";
+        let url = "https://" # host # "/proof/" # "mock-proof-data.json";
         let request_headers = [
-          { name = "User-Agent"; value = "guarantee-canister" },
+          { name = "User-Agent"; value = "ICP-Canister-Guarantee" },
         ];
+
         let http_request : IC.http_request_args = {
           url = url;
           max_response_bytes = null;
@@ -485,10 +509,23 @@ actor Guarantee {
           };
         };
 
-        let http_response : IC.http_request_result = await (with cycles = 234_000_000_000) IC.http_request(http_request);
+        let http_response : IC.http_request_result = await (with cycles = 30_000_000_000) IC.http_request(http_request);
+
+        if (http_response.status != 200) {
+          throw Error.reject("HTTP request failed with status: " # Nat.toText(http_response.status));
+        };
+
         let proof : Text = switch (Text.decodeUtf8(http_response.body)) {
           case (null) { throw Error.reject("No proof data returned") };
-          case (?data) { data };
+          case (?data) {
+            // if (not Text.contains(data, #text transactionId)) {
+            //   throw Error.reject("Proof data does not match transaction ID");
+            // };
+            // if (not Text.contains(data, #text "proofs")) {
+            //   throw Error.reject("Proof data does not contain proofs field");
+            // };
+            data;
+          };
         };
         proofs.put(transactionId, proof);
 
@@ -632,10 +669,14 @@ actor Guarantee {
       case (?txInfo) {
         // let host : Text = "api.example.com";
         // let url = "https://" # host # "/proof/" # transactionId;
-        let url = "https://gist.githubusercontent.com/0xbiubiubiu/ea4724b045e81e440f1c0866939567b7/raw/5589364b6ea6f4d7426fcbece86838987bc553e9/mock-proof-data.json";
+
+        // mock proof data
+        let host : Text = "raw.githubusercontent.com/mind-link-ai/guarantee-canister-proof-mock/refs/heads/main";
+        let url = "https://" # host # "/proof/" # "mock-proof-data.json";
         let request_headers = [
-          { name = "User-Agent"; value = "guarantee-canister" },
+          { name = "User-Agent"; value = "ICP-Canister-Guarantee" },
         ];
+
         let http_request : IC.http_request_args = {
           url = url;
           max_response_bytes = null;
@@ -648,10 +689,23 @@ actor Guarantee {
           };
         };
 
-        let http_response : IC.http_request_result = await (with cycles = 234_000_000_000) IC.http_request(http_request);
+        let http_response : IC.http_request_result = await (with cycles = 30_000_000_000) IC.http_request(http_request);
+
+        if (http_response.status != 200) {
+          throw Error.reject("HTTP request failed with status: " # Nat.toText(http_response.status));
+        };
+
         let proof : Text = switch (Text.decodeUtf8(http_response.body)) {
           case (null) { throw Error.reject("No proof data returned") };
-          case (?data) { data };
+          case (?data) {
+            // if (not Text.contains(data, #text transactionId)) {
+            //   throw Error.reject("Proof data does not match transaction ID");
+            // };
+            // if (not Text.contains(data, #text "proofs")) {
+            //   throw Error.reject("Proof data does not contain proofs field");
+            // };
+            data;
+          };
         };
         proofs.put(transactionId, proof);
         return proof;
@@ -671,7 +725,8 @@ actor Guarantee {
   private func generateTransactionId(participantASolanaAddress : Text, participantBSolanaAddress : Text, now : Nat) : Text {
     let canisterId = privateGetThisCanisterPrincipalText();
     let combinedInput = canisterId # "-" # participantASolanaAddress # "-" # participantBSolanaAddress # "-" # Nat.toText(now);
-    let transactionId = Nat32.toText(Text.hash(combinedInput));
+    let digest = Sha256.fromBlob(#sha256, Text.encodeUtf8(combinedInput));
+    let transactionId = Base58.encode(Blob.toArray(digest));
     return transactionId;
   };
 
@@ -708,6 +763,18 @@ actor Guarantee {
 
   public query func getProofDetails(transactionId : Text) : async ?Text {
     proofs.get(transactionId);
+  };
+
+  public query func getRecentTransactionIds(limit : Nat) : async [Text] {
+    let allIds = Iter.toArray(transactions.keys());
+    let size = allIds.size();
+
+    if (size <= limit) {
+      return allIds;
+    };
+
+    let startIndex = size - limit;
+    Array.tabulate<Text>(limit, func(i) { allIds[startIndex + i] });
   };
 
   public query func getAllTransactionIds() : async [Text] {
