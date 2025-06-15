@@ -3,7 +3,7 @@ import * as dotenv from "dotenv";
 import * as nacl from "tweetnacl";
 import { Actor, HttpAgent } from "@dfinity/agent";
 import { Principal } from "@dfinity/principal";
-import { idlFactory } from "../.dfx/playground/canisters/guarantee/service.did.js";
+import { idlFactory } from "../.dfx/local/canisters/guarantee/service.did.js";
 
 dotenv.config();
 
