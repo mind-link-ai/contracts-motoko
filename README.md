@@ -6,7 +6,9 @@
 
 `mops i`
 
-`dfx start`
+`modify file dfx.json - canisters.guarantee.controllers`
+
+`dfx start --background`
 
 `pnpm deploy:local`
 

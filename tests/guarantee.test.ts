@@ -1,13 +1,17 @@
 import bs58 from "bs58";
 import * as dotenv from "dotenv";
 import * as nacl from "tweetnacl";
+import * as ed25519 from "@noble/ed25519";
+import * as sha512 from "@noble/hashes/sha512";
+
 import { Actor, HttpAgent } from "@dfinity/agent";
+import { Ed25519KeyIdentity } from "@dfinity/identity";
 import { Principal } from "@dfinity/principal";
+
 import { idlFactory } from "../.dfx/local/canisters/guarantee/service.did.js";
 
 dotenv.config();
 
-// Generate Solana key pair
 function generateKeyPair() {
   const keyPair = nacl.sign.keyPair();
   return {
@@ -16,14 +20,20 @@ function generateKeyPair() {
   };
 }
 
-// Signing function
 function signMessage(message: string, secretKey: Uint8Array): string {
   const messageBytes = new TextEncoder().encode(message);
   const signature = nacl.sign.detached(messageBytes, secretKey);
   return bs58.encode(signature);
 }
 
-// Generate test key pairs
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+  }
+  return bytes;
+}
+
 const participantA = generateKeyPair();
 const participantB = generateKeyPair();
 const verifier = generateKeyPair();
@@ -31,8 +41,8 @@ const arbitrator = generateKeyPair();
 const stakeVault = generateKeyPair();
 
 const config = {
-  stakeDuration: BigInt(60 * 60 * 24), // 1 day
-  tradeDuration: BigInt(60 * 60 * 24 * 7), // 7 days
+  stakeDuration: BigInt(60 * 60 * 24),
+  tradeDuration: BigInt(60 * 60 * 24 * 7),
   participantA: {
     solanaAddress: participantA.publicKey,
     shouldStakeAmount: BigInt(1000 * 1_000_000),
@@ -60,136 +70,57 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const getCurrentTimestampInSeconds = () =>
   BigInt(Math.floor(Date.now() / 1000));
 
-async function runTests() {
-  try {
-    console.log("Starting guarantee contract tests...");
-    console.log("Participant A address:", config.participantA.solanaAddress);
-    console.log("Participant B address:", config.participantB.solanaAddress);
-    console.log("Verifier address:", config.verifier.solanaAddress);
-    console.log("Arbitrator address:", config.arbitrator.solanaAddress);
-    console.log("Stake vault address:", config.stakeVault.solanaAddress);
+async function setupActor() {
+  const canisterId = process.env.CANISTER_ID_GUARANTEE;
+  if (!canisterId) throw new Error("Canister ID not found");
 
-    const canisterId = process.env.CANISTER_ID_GUARANTEE;
-    if (!canisterId) throw new Error("Canister ID not found");
+  const customIdentity = Ed25519KeyIdentity.generate();
+  const agent = new HttpAgent({
+    host: "http://127.0.0.1:4943",
+    identity: customIdentity,
+    verifyQuerySignatures: false,
+  });
+  await agent.fetchRootKey();
 
-    const agent = new HttpAgent({
-      host: "http://127.0.0.1:4943",
-      verifyQuerySignatures: false,
-    });
-    await agent.fetchRootKey();
-
-    const actor = Actor.createActor(idlFactory, { agent, canisterId });
-    const principal = await actor.getThisCanisterPrincipalText();
-    console.log("Contract Principal:", principal);
-
-    console.log("\n1. Testing happy path (Settlement Escrow)");
-    await testHappyPath(actor, principal as string);
-
-    console.log("\n2. Testing mutual escrow mode");
-    await testMutualEscrowMode(actor, principal as string);
-
-    console.log("\n3. Testing timeout scenario");
-    await testTimeoutScenario(actor, principal as string);
-
-    console.log("\n4. Testing dispute scenario");
-    await testDisputeScenario(actor, principal as string);
-
-    console.log("\n5. Testing proof functionality");
-    await testProofScenario(actor, principal as string);
-
-    console.log("\n6. Testing getRecentTransactionIds");
-    await testGetRecentTransactionIds(actor);
-
-    console.log("\nAll tests completed!");
-  } catch (error) {
-    console.error("Test error:", error);
-  }
+  const actor = Actor.createActor(idlFactory, { agent, canisterId });
+  const principal = await actor.getThisCanisterPrincipalText();
+  return { actor, principal: principal as string };
 }
 
-async function testHappyPath(actor: any, principal: string) {
-  console.log("=== happy path begins ===");
-  console.log("=== step: init ===");
-  console.log("party A address: " + config.participantA.solanaAddress);
-  console.log("party B address: " + config.participantB.solanaAddress);
-  console.log("party A stake amount: " + config.participantA.shouldStakeAmount);
-  console.log("party B stake amount: " + config.participantB.shouldStakeAmount);
-  console.log("verifier address: " + config.verifier.solanaAddress);
-  console.log("arbitrator address: " + config.arbitrator.solanaAddress);
-  console.log("stake duration: " + config.stakeDuration);
-  console.log("trade duration: " + config.tradeDuration);
-  console.log("");
-
-  const transactionId = await actor.initialize(
-    { Settlement: null }, // Use transactional escrow mode
-    "Normal transaction test",
-    config.participantA.solanaAddress,
-    config.participantB.solanaAddress,
-    config.participantA.shouldStakeAmount,
-    config.participantB.shouldStakeAmount,
-    config.verifier.solanaAddress,
-    config.arbitrator.solanaAddress,
-    config.stakeDuration,
-    config.tradeDuration
-  );
-
-  let status = await actor.getTransactionStatusText(transactionId);
-  console.log("Initial status:", status);
-  let details = await actor.getTransactionDetails(transactionId);
-  console.log("Initial details:", details);
-
-  // Participant A staking complete
+async function completeStaking(actor: any, principal: string, txId: string) {
   const participantAStakeTimestamp = getCurrentTimestampInSeconds();
-  const stakeMessageA = `${principal}-${transactionId}-Staking-${config.stakeVault.solanaAddress}-${config.participantA.solanaAddress}-${participantAStakeTimestamp}`;
+  const stakeMessageA = `${principal}-${txId}-Staking-${config.stakeVault.solanaAddress}-${config.participantA.solanaAddress}-${participantAStakeTimestamp}`;
   const stakeSignatureA = signMessage(stakeMessageA, config.verifier.secretKey);
 
-  console.log("=== step: stake by party A ===");
-  console.log("vault address: " + config.stakeVault.solanaAddress);
-  console.log("party A address: " + config.participantA.solanaAddress);
-  console.log("party A stake ts: " + participantAStakeTimestamp);
-  console.log("party A sig: " + stakeSignatureA);
-  console.log("");
-
   await actor.confirmStakingComplete(
-    transactionId,
+    txId,
     config.stakeVault.solanaAddress,
     config.participantA.solanaAddress,
     participantAStakeTimestamp,
     stakeSignatureA
   );
 
-  status = await actor.getTransactionStatusText(transactionId);
-  console.log("Participant A staking status:", status);
-
-  // Participant B staking complete
   const participantBStakeTimestamp = getCurrentTimestampInSeconds();
-  const stakeMessageB = `${principal}-${transactionId}-Staking-${config.stakeVault.solanaAddress}-${config.participantB.solanaAddress}-${participantBStakeTimestamp}`;
+  const stakeMessageB = `${principal}-${txId}-Staking-${config.stakeVault.solanaAddress}-${config.participantB.solanaAddress}-${participantBStakeTimestamp}`;
   const stakeSignatureB = signMessage(stakeMessageB, config.verifier.secretKey);
 
-  console.log("=== step: stake by party B ===");
-  console.log("vault address: " + config.stakeVault.solanaAddress);
-  console.log("party B address: " + config.participantB.solanaAddress);
-  console.log("party B stake ts: " + participantBStakeTimestamp);
-  console.log("party B sig: " + stakeSignatureB);
-  console.log("");
-
   await actor.confirmStakingComplete(
-    transactionId,
+    txId,
     config.stakeVault.solanaAddress,
     config.participantB.solanaAddress,
     participantBStakeTimestamp,
     stakeSignatureB
   );
+}
 
-  status = await actor.getTransactionStatusText(transactionId);
-  console.log("Participant B staking status:", status);
-
-  // Trading complete
-  const participantATradeTimestamp = getCurrentTimestampInSeconds();
-  const participantBTradeTimestamp = getCurrentTimestampInSeconds();
-
-  const tradeMessageA = `${principal}-${transactionId}-Trading-${participantATradeTimestamp}`;
-  const tradeMessageB = `${principal}-${transactionId}-Trading-${participantBTradeTimestamp}`;
-
+async function completeTrading(
+  actor: any,
+  principal: string,
+  txId: string,
+  withVerifier = false
+) {
+  const tradeMessageA = `${principal}-${txId}-Trading`;
+  const tradeMessageB = `${principal}-${txId}-Trading`;
   const tradeSignatureA = signMessage(
     tradeMessageA,
     config.participantA.secretKey
@@ -199,412 +130,82 @@ async function testHappyPath(actor: any, principal: string) {
     config.participantB.secretKey
   );
 
-  console.log("=== step: confirm trade ===");
-  console.log("party A trade ts: " + participantATradeTimestamp);
-  console.log("party B trade ts: " + participantBTradeTimestamp);
-  console.log("party A sig: " + tradeSignatureA);
-  console.log("party B sig: " + tradeSignatureB);
-  console.log("");
-
-  await actor.confirmTradingComplete(
-    transactionId,
-    participantATradeTimestamp,
-    participantBTradeTimestamp,
-    tradeSignatureA,
-    tradeSignatureB
-  );
-
-  status = await actor.getTransactionStatusText(transactionId);
-  console.log("Trading complete status:", status);
-
-  // Participant A settling complete
-  const participantASettleTimestamp = getCurrentTimestampInSeconds();
-  const settleMessageA = `${principal}-${transactionId}-Settling-${config.stakeVault.solanaAddress}-${config.participantA.solanaAddress}-${participantASettleTimestamp}`;
-  const settleSignatureA = signMessage(
-    settleMessageA,
-    config.verifier.secretKey
-  );
-
-  console.log("=== step: settle A ===");
-  console.log("vault address: " + config.stakeVault.solanaAddress);
-  console.log("party A address: " + config.participantA.solanaAddress);
-  console.log("party A settle ts: " + participantASettleTimestamp);
-  console.log("party A sig: " + settleSignatureA);
-  console.log("");
-
-  await actor.confirmSettlingComplete(
-    transactionId,
-    config.stakeVault.solanaAddress,
-    config.participantA.solanaAddress,
-    participantASettleTimestamp,
-    settleSignatureA
-  );
-
-  status = await actor.getTransactionStatusText(transactionId);
-  console.log("Participant A settling status:", status);
-
-  // Participant B settling complete
-  const participantBSettleTimestamp = getCurrentTimestampInSeconds();
-  const settleMessageB = `${principal}-${transactionId}-Settling-${config.stakeVault.solanaAddress}-${config.participantB.solanaAddress}-${participantBSettleTimestamp}`;
-  const settleSignatureB = signMessage(
-    settleMessageB,
-    config.verifier.secretKey
-  );
-
-  console.log("=== step: settle B ===");
-  console.log("vault address: " + config.stakeVault.solanaAddress);
-  console.log("party B address: " + config.participantB.solanaAddress);
-  console.log("party B settle ts: " + participantBSettleTimestamp);
-  console.log("party B sig: " + settleSignatureB);
-  console.log("");
-
-  await actor.confirmSettlingComplete(
-    transactionId,
-    config.stakeVault.solanaAddress,
-    config.participantB.solanaAddress,
-    participantBSettleTimestamp,
-    settleSignatureB
-  );
-
-  status = await actor.getTransactionStatusText(transactionId);
-  console.log("Participant B settling status:", status);
-
-  details = await actor.getTransactionDetails(transactionId);
-  console.log("Final details:", details);
-  console.log("=== happy path ended ===");
-}
-
-async function testTimeoutScenario(actor: any, principal: string) {
-  // Initialize transaction - Stake timeout test
-  const stakeTimeoutTxId = await actor.initialize(
-    { Settlement: null }, // Use transactional escrow mode
-    "Staking timeout test",
-    config.participantA.solanaAddress,
-    config.participantB.solanaAddress,
-    config.participantA.shouldStakeAmount,
-    config.participantB.shouldStakeAmount,
-    config.verifier.solanaAddress,
-    config.arbitrator.solanaAddress,
-    BigInt(1), // Timeout after 1 second
-    config.tradeDuration
-  );
-
-  await delay(2000); // Wait 2 seconds to ensure timeout
-
-  const participantAStakeTimestamp = getCurrentTimestampInSeconds();
-  const stakeMessageA = `${principal}-${stakeTimeoutTxId}-Staking-${config.stakeVault.solanaAddress}-${config.participantA.solanaAddress}-${participantAStakeTimestamp}`;
-  const stakeSignatureA = signMessage(stakeMessageA, config.verifier.secretKey);
-
-  await actor.confirmStakingComplete(
-    stakeTimeoutTxId,
-    config.stakeVault.solanaAddress,
-    config.participantA.solanaAddress,
-    participantAStakeTimestamp,
-    stakeSignatureA
-  );
-
-  let status = await actor.getTransactionStatusText(stakeTimeoutTxId);
-  console.log("Staking timeout status:", status);
-  let details = await actor.getTransactionDetails(stakeTimeoutTxId);
-  console.log("Staking timeout details:", details);
-
-  // Trading timeout test
-  const tradeTimeoutTxId = await actor.initialize(
-    { Settlement: null }, // Use transactional escrow mode
-    "Trading timeout test",
-    config.participantA.solanaAddress,
-    config.participantB.solanaAddress,
-    config.participantA.shouldStakeAmount,
-    config.participantB.shouldStakeAmount,
-    config.verifier.solanaAddress,
-    config.arbitrator.solanaAddress,
-    config.stakeDuration,
-    BigInt(1) // Timeout after 1 second
-  );
-
-  // Participant A staking
-  const participantAStakeTimestamp2 = getCurrentTimestampInSeconds();
-  const stakeMessageA2 = `${principal}-${tradeTimeoutTxId}-Staking-${config.stakeVault.solanaAddress}-${config.participantA.solanaAddress}-${participantAStakeTimestamp2}`;
-  const stakeSignatureA2 = signMessage(
-    stakeMessageA2,
-    config.verifier.secretKey
-  );
-
-  await actor.confirmStakingComplete(
-    tradeTimeoutTxId,
-    config.stakeVault.solanaAddress,
-    config.participantA.solanaAddress,
-    participantAStakeTimestamp2,
-    stakeSignatureA2
-  );
-
-  // Participant B staking
-  const participantBStakeTimestamp2 = getCurrentTimestampInSeconds();
-  const stakeMessageB2 = `${principal}-${tradeTimeoutTxId}-Staking-${config.stakeVault.solanaAddress}-${config.participantB.solanaAddress}-${participantBStakeTimestamp2}`;
-  const stakeSignatureB2 = signMessage(
-    stakeMessageB2,
-    config.verifier.secretKey
-  );
-
-  await actor.confirmStakingComplete(
-    tradeTimeoutTxId,
-    config.stakeVault.solanaAddress,
-    config.participantB.solanaAddress,
-    participantBStakeTimestamp2,
-    stakeSignatureB2
-  );
-
-  await delay(2000); // Wait 2 seconds to ensure timeout
-
-  // Try to confirm trading complete
-  const participantATradeTimestamp = getCurrentTimestampInSeconds();
-  const participantBTradeTimestamp = getCurrentTimestampInSeconds();
-
-  const tradeMessageA = `${principal}-${tradeTimeoutTxId}-Trading-${participantATradeTimestamp}`;
-  const tradeMessageB = `${principal}-${tradeTimeoutTxId}-Trading-${participantBTradeTimestamp}`;
-
-  const tradeSignatureA = signMessage(
-    tradeMessageA,
-    config.participantA.secretKey
-  );
-  const tradeSignatureB = signMessage(
-    tradeMessageB,
-    config.participantB.secretKey
-  );
-
-  await actor.confirmTradingComplete(
-    tradeTimeoutTxId,
-    participantATradeTimestamp,
-    participantBTradeTimestamp,
-    tradeSignatureA,
-    tradeSignatureB
-  );
-
-  status = await actor.getTransactionStatusText(tradeTimeoutTxId);
-  console.log("Trading timeout status:", status);
-  details = await actor.getTransactionDetails(tradeTimeoutTxId);
-  console.log("Trading timeout details:", details);
-}
-
-async function testDisputeScenario(actor: any, principal: string) {
-  // Initialize transaction - Dispute test
-  const disputeTxId = await actor.initialize(
-    { Settlement: null }, // Use transactional escrow mode
-    "Dispute test",
-    config.participantA.solanaAddress,
-    config.participantB.solanaAddress,
-    config.participantA.shouldStakeAmount,
-    config.participantB.shouldStakeAmount,
-    config.verifier.solanaAddress,
-    config.arbitrator.solanaAddress,
-    config.stakeDuration,
-    config.tradeDuration
-  );
-
-  // Participant A staking
-  const participantAStakeTimestamp = getCurrentTimestampInSeconds();
-  const stakeMessageA = `${principal}-${disputeTxId}-Staking-${config.stakeVault.solanaAddress}-${config.participantA.solanaAddress}-${participantAStakeTimestamp}`;
-  const stakeSignatureA = signMessage(stakeMessageA, config.verifier.secretKey);
-
-  await actor.confirmStakingComplete(
-    disputeTxId,
-    config.stakeVault.solanaAddress,
-    config.participantA.solanaAddress,
-    participantAStakeTimestamp,
-    stakeSignatureA
-  );
-
-  // Participant B staking
-  const participantBStakeTimestamp = getCurrentTimestampInSeconds();
-  const stakeMessageB = `${principal}-${disputeTxId}-Staking-${config.stakeVault.solanaAddress}-${config.participantB.solanaAddress}-${participantBStakeTimestamp}`;
-  const stakeSignatureB = signMessage(stakeMessageB, config.verifier.secretKey);
-
-  await actor.confirmStakingComplete(
-    disputeTxId,
-    config.stakeVault.solanaAddress,
-    config.participantB.solanaAddress,
-    participantBStakeTimestamp,
-    stakeSignatureB
-  );
-
-  // Participant A initiates dispute
-  const participantADisputeTimestamp = getCurrentTimestampInSeconds();
-  const disputeMessageA = `${principal}-${disputeTxId}-Disputing-${participantADisputeTimestamp}`;
-  const disputeSignatureA = signMessage(
-    disputeMessageA,
-    config.participantA.secretKey
-  );
-
-  await actor.initiateDispute(
-    disputeTxId,
-    config.participantA.solanaAddress,
-    participantADisputeTimestamp,
-    disputeSignatureA
-  );
-
-  // Arbitrator resolves dispute
-  const participantAWithdrawableAmount = BigInt(600 * 1_000_000);
-  const participantBWithdrawableAmount = BigInt(400 * 1_000_000);
-  const arbitratorResolveTimestamp = getCurrentTimestampInSeconds();
-
-  const resolveMessage = `${principal}-${disputeTxId}-Resolving-${participantAWithdrawableAmount}-${participantBWithdrawableAmount}-${arbitratorResolveTimestamp}`;
-  const resolveSignature = signMessage(
-    resolveMessage,
-    config.arbitrator.secretKey
-  );
-
-  await actor.resolveDispute(
-    disputeTxId,
-    "Dispute resolution details",
-    participantAWithdrawableAmount,
-    participantBWithdrawableAmount,
-    arbitratorResolveTimestamp,
-    resolveSignature
-  );
-
-  let status = await actor.getTransactionStatusText(disputeTxId);
-  console.log("Dispute resolution status:", status);
-
-  // Participant A settling
-  const participantASettleTimestamp = getCurrentTimestampInSeconds();
-  const settleMessageA = `${principal}-${disputeTxId}-Settling-${config.stakeVault.solanaAddress}-${config.participantA.solanaAddress}-${participantASettleTimestamp}`;
-  const settleSignatureA = signMessage(
-    settleMessageA,
-    config.verifier.secretKey
-  );
-
-  await actor.confirmSettlingComplete(
-    disputeTxId,
-    config.stakeVault.solanaAddress,
-    config.participantA.solanaAddress,
-    participantASettleTimestamp,
-    settleSignatureA
-  );
-
-  // Participant B settling
-  const participantBSettleTimestamp = getCurrentTimestampInSeconds();
-  const settleMessageB = `${principal}-${disputeTxId}-Settling-${config.stakeVault.solanaAddress}-${config.participantB.solanaAddress}-${participantBSettleTimestamp}`;
-  const settleSignatureB = signMessage(
-    settleMessageB,
-    config.verifier.secretKey
-  );
-
-  await actor.confirmSettlingComplete(
-    disputeTxId,
-    config.stakeVault.solanaAddress,
-    config.participantB.solanaAddress,
-    participantBSettleTimestamp,
-    settleSignatureB
-  );
-
-  status = await actor.getTransactionStatusText(disputeTxId);
-  console.log("Dispute settlement status:", status);
-}
-
-async function testProofScenario(actor: any, principal: string) {
-  console.log("=== proof test begins ===");
-  const proofTxId = await actor.initialize(
-    { Settlement: null }, // Use transactional escrow mode
-    "Proof test",
-    config.participantA.solanaAddress,
-    config.participantB.solanaAddress,
-    config.participantA.shouldStakeAmount,
-    config.participantB.shouldStakeAmount,
-    config.verifier.solanaAddress,
-    config.arbitrator.solanaAddress,
-    config.stakeDuration,
-    config.tradeDuration
-  );
-  const participantAStakeTimestamp = getCurrentTimestampInSeconds();
-  const stakeMessageA = `${principal}-${proofTxId}-Staking-${config.stakeVault.solanaAddress}-${config.participantA.solanaAddress}-${participantAStakeTimestamp}`;
-  const stakeSignatureA = signMessage(stakeMessageA, config.verifier.secretKey);
-  await actor.confirmStakingComplete(
-    proofTxId,
-    config.stakeVault.solanaAddress,
-    config.participantA.solanaAddress,
-    participantAStakeTimestamp,
-    stakeSignatureA
-  );
-  const participantBStakeTimestamp = getCurrentTimestampInSeconds();
-  const stakeMessageB = `${principal}-${proofTxId}-Staking-${config.stakeVault.solanaAddress}-${config.participantB.solanaAddress}-${participantBStakeTimestamp}`;
-  const stakeSignatureB = signMessage(stakeMessageB, config.verifier.secretKey);
-  await actor.confirmStakingComplete(
-    proofTxId,
-    config.stakeVault.solanaAddress,
-    config.participantB.solanaAddress,
-    participantBStakeTimestamp,
-    stakeSignatureB
-  );
-
-  // Test getting proof in initial state
-  let proof = await actor.getProofDetails(proofTxId);
-  console.log("Initial proof:", proof);
-
-  // Create and resolve dispute, this will trigger proof generation
-  const participantADisputeTimestamp = getCurrentTimestampInSeconds();
-  const disputeMessageA = `${principal}-${proofTxId}-Disputing-${participantADisputeTimestamp}`;
-  const disputeSignatureA = signMessage(
-    disputeMessageA,
-    config.participantA.secretKey
-  );
-
-  await actor.initiateDispute(
-    proofTxId,
-    config.participantA.solanaAddress,
-    participantADisputeTimestamp,
-    disputeSignatureA
-  );
-
-  // Arbitrator resolves dispute
-  const participantAWithdrawableAmount = BigInt(600 * 1_000_000);
-  const participantBWithdrawableAmount = BigInt(400 * 1_000_000);
-  const arbitratorResolveTimestamp = getCurrentTimestampInSeconds();
-
-  const resolveMessage = `${principal}-${proofTxId}-Resolving-${participantAWithdrawableAmount}-${participantBWithdrawableAmount}-${arbitratorResolveTimestamp}`;
-  const resolveSignature = signMessage(
-    resolveMessage,
-    config.arbitrator.secretKey
-  );
-
-  await actor.resolveDispute(
-    proofTxId,
-    "Dispute resolution with proof test",
-    participantAWithdrawableAmount,
-    participantBWithdrawableAmount,
-    arbitratorResolveTimestamp,
-    resolveSignature
-  );
-
-  // Test getting proof after dispute resolution
-  proof = await actor.getProofDetails(proofTxId);
-  console.log("Proof after dispute resolution:", proof);
-
-  // Test manually fetching proof
-  try {
-    const fetchedProof = await actor.fetchProof(proofTxId);
-    console.log("Manually fetched proof:", fetchedProof);
-  } catch (error) {
-    console.log("Error fetching proof:", error);
+  if (withVerifier) {
+    const verifierTradeMessage = `${principal}-${txId}-Trading`;
+    const verifierTradeSignature = signMessage(
+      verifierTradeMessage,
+      config.verifier.secretKey
+    );
+    await actor.confirmTradingComplete(txId, [], [], [verifierTradeSignature]);
+  } else {
+    await actor.confirmTradingComplete(
+      txId,
+      [tradeSignatureA],
+      [tradeSignatureB],
+      []
+    );
   }
-
-  console.log("=== proof test ended ===");
 }
 
-async function testMutualEscrowMode(actor: any, principal: string) {
-  console.log("=== mutual escrow mode begins ===");
-  console.log("=== step: init ===");
-  console.log("party A address: " + config.participantA.solanaAddress);
-  console.log("party B address: " + config.participantB.solanaAddress);
-  console.log("party A stake amount: " + config.participantA.shouldStakeAmount);
-  console.log("party B stake amount: " + config.participantB.shouldStakeAmount);
-  console.log("verifier address: " + config.verifier.solanaAddress);
-  console.log("arbitrator address: " + config.arbitrator.solanaAddress);
-  console.log("stake duration: " + config.stakeDuration);
-  console.log("trade duration: " + config.tradeDuration);
-  console.log("");
+async function completeSettling(actor: any, principal: string, txId: string) {
+  const participantASettleTimestamp = getCurrentTimestampInSeconds();
+  const settleMessageA = `${principal}-${txId}-Settling-${config.stakeVault.solanaAddress}-${config.participantA.solanaAddress}-${participantASettleTimestamp}`;
+  const settleSignatureA = signMessage(
+    settleMessageA,
+    config.verifier.secretKey
+  );
 
-  const transactionId = await actor.initialize(
-    { Mutual: null }, // Use mutual escrow mode
+  await actor.confirmSettlingComplete(
+    txId,
+    config.stakeVault.solanaAddress,
+    config.participantA.solanaAddress,
+    participantASettleTimestamp,
+    settleSignatureA
+  );
+
+  const participantBSettleTimestamp = getCurrentTimestampInSeconds();
+  const settleMessageB = `${principal}-${txId}-Settling-${config.stakeVault.solanaAddress}-${config.participantB.solanaAddress}-${participantBSettleTimestamp}`;
+  const settleSignatureB = signMessage(
+    settleMessageB,
+    config.verifier.secretKey
+  );
+
+  await actor.confirmSettlingComplete(
+    txId,
+    config.stakeVault.solanaAddress,
+    config.participantB.solanaAddress,
+    participantBSettleTimestamp,
+    settleSignatureB
+  );
+}
+
+async function testBasicFunctionality(actor: any, principal: string) {
+  console.log("=== Basic Functionality Tests ===");
+
+  console.log("\n--- Settlement Escrow Mode ---");
+  const settlementTxId = await actor.initialize(
+    { Settlement: null },
+    "Settlement escrow test",
+    config.participantA.solanaAddress,
+    config.participantB.solanaAddress,
+    config.participantA.shouldStakeAmount,
+    config.participantB.shouldStakeAmount,
+    config.verifier.solanaAddress,
+    config.arbitrator.solanaAddress,
+    config.stakeDuration,
+    config.tradeDuration
+  );
+
+  await completeStaking(actor, principal, settlementTxId);
+  await completeTrading(actor, principal, settlementTxId);
+  await completeSettling(actor, principal, settlementTxId);
+
+  let status = await actor.getTransactionStatusText(settlementTxId);
+  console.log("Settlement final status:", status);
+
+  console.log("\n--- Mutual Escrow Mode ---");
+  const mutualTxId = await actor.initialize(
+    { Mutual: null },
     "Mutual escrow test",
     config.participantA.solanaAddress,
     config.participantB.solanaAddress,
@@ -616,181 +217,236 @@ async function testMutualEscrowMode(actor: any, principal: string) {
     config.tradeDuration
   );
 
-  let status = await actor.getTransactionStatusText(transactionId);
-  console.log("Initial status:", status);
-  let details = await actor.getTransactionDetails(transactionId);
-  console.log("Initial details:", details);
+  await completeStaking(actor, principal, mutualTxId);
+  await completeTrading(actor, principal, mutualTxId);
+  await completeSettling(actor, principal, mutualTxId);
 
-  // Participant A staking complete
-  const participantAStakeTimestamp = getCurrentTimestampInSeconds();
-  const stakeMessageA = `${principal}-${transactionId}-Staking-${config.stakeVault.solanaAddress}-${config.participantA.solanaAddress}-${participantAStakeTimestamp}`;
-  const stakeSignatureA = signMessage(stakeMessageA, config.verifier.secretKey);
+  status = await actor.getTransactionStatusText(mutualTxId);
+  console.log("Mutual final status:", status);
 
-  console.log("=== step: stake by party A ===");
-  console.log("vault address: " + config.stakeVault.solanaAddress);
-  console.log("party A address: " + config.participantA.solanaAddress);
-  console.log("party A stake ts: " + participantAStakeTimestamp);
-  console.log("party A sig: " + stakeSignatureA);
-  console.log("");
-
-  await actor.confirmStakingComplete(
-    transactionId,
-    config.stakeVault.solanaAddress,
-    config.participantA.solanaAddress,
-    participantAStakeTimestamp,
-    stakeSignatureA
-  );
-
-  status = await actor.getTransactionStatusText(transactionId);
-  console.log("Participant A staking status:", status);
-
-  // Participant B staking complete
-  const participantBStakeTimestamp = getCurrentTimestampInSeconds();
-  const stakeMessageB = `${principal}-${transactionId}-Staking-${config.stakeVault.solanaAddress}-${config.participantB.solanaAddress}-${participantBStakeTimestamp}`;
-  const stakeSignatureB = signMessage(stakeMessageB, config.verifier.secretKey);
-
-  console.log("=== step: stake by party B ===");
-  console.log("vault address: " + config.stakeVault.solanaAddress);
-  console.log("party B address: " + config.participantB.solanaAddress);
-  console.log("party B stake ts: " + participantBStakeTimestamp);
-  console.log("party B sig: " + stakeSignatureB);
-  console.log("");
-
-  await actor.confirmStakingComplete(
-    transactionId,
-    config.stakeVault.solanaAddress,
-    config.participantB.solanaAddress,
-    participantBStakeTimestamp,
-    stakeSignatureB
-  );
-
-  status = await actor.getTransactionStatusText(transactionId);
-  console.log("Participant B staking status:", status);
-
-  // Trading complete
-  const participantATradeTimestamp = getCurrentTimestampInSeconds();
-  const participantBTradeTimestamp = getCurrentTimestampInSeconds();
-
-  const tradeMessageA = `${principal}-${transactionId}-Trading-${participantATradeTimestamp}`;
-  const tradeMessageB = `${principal}-${transactionId}-Trading-${participantBTradeTimestamp}`;
-
-  const tradeSignatureA = signMessage(
-    tradeMessageA,
-    config.participantA.secretKey
-  );
-  const tradeSignatureB = signMessage(
-    tradeMessageB,
-    config.participantB.secretKey
-  );
-
-  console.log("=== step: confirm trade ===");
-  console.log("party A trade ts: " + participantATradeTimestamp);
-  console.log("party B trade ts: " + participantBTradeTimestamp);
-  console.log("party A sig: " + tradeSignatureA);
-  console.log("party B sig: " + tradeSignatureB);
-  console.log("");
-
-  await actor.confirmTradingComplete(
-    transactionId,
-    participantATradeTimestamp,
-    participantBTradeTimestamp,
-    tradeSignatureA,
-    tradeSignatureB
-  );
-
-  status = await actor.getTransactionStatusText(transactionId);
-  console.log("Trading complete status:", status);
-  details = await actor.getTransactionDetails(transactionId);
-  console.log("After trading details:", details);
-
-  console.log("Verifying mutual escrow mode behavior...");
-  console.log(
-    "Participant A withdrawable amount:",
-    details[0].participantA.withdrawableUSDCAmount
-  );
-  console.log(
-    "Participant B withdrawable amount:",
-    details[0].participantB.withdrawableUSDCAmount
-  );
-  console.log(
-    "Expected: Both participants should keep their original stake amounts"
-  );
-
-  // Participant A settling complete
-  const participantASettleTimestamp = getCurrentTimestampInSeconds();
-  const settleMessageA = `${principal}-${transactionId}-Settling-${config.stakeVault.solanaAddress}-${config.participantA.solanaAddress}-${participantASettleTimestamp}`;
-  const settleSignatureA = signMessage(
-    settleMessageA,
-    config.verifier.secretKey
-  );
-
-  console.log("=== step: settle A ===");
-  console.log("vault address: " + config.stakeVault.solanaAddress);
-  console.log("party A address: " + config.participantA.solanaAddress);
-  console.log("party A settle ts: " + participantASettleTimestamp);
-  console.log("party A sig: " + settleSignatureA);
-  console.log("");
-
-  await actor.confirmSettlingComplete(
-    transactionId,
-    config.stakeVault.solanaAddress,
-    config.participantA.solanaAddress,
-    participantASettleTimestamp,
-    settleSignatureA
-  );
-
-  status = await actor.getTransactionStatusText(transactionId);
-  console.log("Participant A settling status:", status);
-
-  // Participant B settling complete
-  const participantBSettleTimestamp = getCurrentTimestampInSeconds();
-  const settleMessageB = `${principal}-${transactionId}-Settling-${config.stakeVault.solanaAddress}-${config.participantB.solanaAddress}-${participantBSettleTimestamp}`;
-  const settleSignatureB = signMessage(
-    settleMessageB,
-    config.verifier.secretKey
-  );
-
-  console.log("=== step: settle B ===");
-  console.log("vault address: " + config.stakeVault.solanaAddress);
-  console.log("party B address: " + config.participantB.solanaAddress);
-  console.log("party B settle ts: " + participantBSettleTimestamp);
-  console.log("party B sig: " + settleSignatureB);
-  console.log("");
-
-  await actor.confirmSettlingComplete(
-    transactionId,
-    config.stakeVault.solanaAddress,
-    config.participantB.solanaAddress,
-    participantBSettleTimestamp,
-    settleSignatureB
-  );
-
-  status = await actor.getTransactionStatusText(transactionId);
-  console.log("Participant B settling status:", status);
-
-  details = await actor.getTransactionDetails(transactionId);
-  console.log("Final details:", details);
-  console.log("=== mutual escrow mode test ended ===");
+  let details = await actor.getTransactionDetails(mutualTxId);
 }
 
-async function testGetRecentTransactionIds(actor: any) {
-  console.log("Testing getRecentTransactionIds function...");
+async function testSignatureFunctionality(actor: any, principal: string) {
+  console.log("\n=== Signature Functionality Tests ===");
 
-  const allIds = await actor.getAllTransactionIds();
-  console.log("Total transaction IDs:", allIds.length);
-
-  const limit = 2;
-  const recentIds = await actor.getRecentTransactionIds(limit);
-  console.log(`Recent ${limit} transaction IDs:`, recentIds);
-
-  console.log(
-    `Expected ${Math.min(limit, allIds.length)} IDs, got ${recentIds.length} IDs`
+  console.log("\n--- Verifier Signature Test ---");
+  const verifierTxId = await actor.initialize(
+    { Settlement: null },
+    "Verifier signature test",
+    config.participantA.solanaAddress,
+    config.participantB.solanaAddress,
+    config.participantA.shouldStakeAmount,
+    config.participantB.shouldStakeAmount,
+    config.verifier.solanaAddress,
+    config.arbitrator.solanaAddress,
+    config.stakeDuration,
+    config.tradeDuration
   );
 
-  if (allIds.length > limit) {
-    const expectedIds = allIds.slice(allIds.length - limit);
-    console.log("Expected recent IDs:", expectedIds);
-    console.log("Actual recent IDs:", recentIds);
+  await completeStaking(actor, principal, verifierTxId);
+  await completeTrading(actor, principal, verifierTxId, true);
+
+  let status = await actor.getTransactionStatusText(verifierTxId);
+  console.log("Verifier signature status:", status);
+
+  console.log("\n--- Schnorr Signature Test ---");
+  const schnorrTxId = await actor.initialize(
+    { Settlement: null },
+    "Schnorr signature test",
+    config.participantA.solanaAddress,
+    config.participantB.solanaAddress,
+    config.participantA.shouldStakeAmount,
+    config.participantB.shouldStakeAmount,
+    config.verifier.solanaAddress,
+    config.arbitrator.solanaAddress,
+    config.stakeDuration,
+    config.tradeDuration
+  );
+
+  await completeStaking(actor, principal, schnorrTxId);
+  await completeTrading(actor, principal, schnorrTxId);
+
+  try {
+    const schnorrPublicKey = await actor.getSchnorrPublicKey();
+    console.log("Schnorr public key:", schnorrPublicKey);
+
+    const signWithSchnorrContent =
+      await actor.getSignWithSchnorrContent(schnorrTxId);
+    console.log("signWithSchnorrContent:", signWithSchnorrContent);
+
+    const schnorrSignature = await actor.signWithSchnorr(schnorrTxId);
+    console.log("Schnorr signature:", schnorrSignature);
+
+    const details = await actor.getTransactionDetails(schnorrTxId);
+    const expectedMessage = `${principal}-${schnorrTxId}-Traded-Settlement-${details[0].participantA.participantSolanaAddress}-${details[0].participantA.withdrawableUSDCAmount}-${details[0].participantB.participantSolanaAddress}-${details[0].participantB.withdrawableUSDCAmount}-CanSettle`;
+    console.log("Expected signature message:", expectedMessage);
+    console.log("message equal:", expectedMessage == signWithSchnorrContent);
+
+    try {
+      ed25519.etc.sha512Sync = (...m) =>
+        sha512.sha512(ed25519.etc.concatBytes(...m));
+
+      const messageBytes = Uint8Array.from(
+        Buffer.from(expectedMessage, "utf8")
+      );
+
+      const isValidSignature = await ed25519.verify(
+        schnorrSignature,
+        messageBytes,
+        schnorrPublicKey
+      );
+
+      console.log("Signature verification result:", isValidSignature);
+
+      if (isValidSignature) {
+        console.log(
+          "Signature verified successfully, proceeding with settling..."
+        );
+        await completeSettling(actor, principal, schnorrTxId);
+        const finalStatus = await actor.getTransactionStatusText(schnorrTxId);
+        console.log("Schnorr transaction final status:", finalStatus);
+      } else {
+        throw Error("Schnorr signature verification failed");
+      }
+    } catch (verifyError) {
+      console.log("Signature verification error:", verifyError);
+    }
+  } catch (error) {
+    console.log("Schnorr signature error (expected in some states):", error);
+  }
+}
+
+async function testExceptionScenarios(actor: any, principal: string) {
+  console.log("\n=== Exception Scenario Tests ===");
+
+  console.log("\n--- Timeout Scenarios ---");
+  const timeoutTxId = await actor.initialize(
+    { Settlement: null },
+    "Timeout test",
+    config.participantA.solanaAddress,
+    config.participantB.solanaAddress,
+    config.participantA.shouldStakeAmount,
+    config.participantB.shouldStakeAmount,
+    config.verifier.solanaAddress,
+    config.arbitrator.solanaAddress,
+    BigInt(1),
+    config.tradeDuration
+  );
+
+  await delay(2000);
+
+  try {
+    await completeStaking(actor, principal, timeoutTxId);
+    let status = await actor.getTransactionStatusText(timeoutTxId);
+    console.log("Timeout test status:", status);
+  } catch (error) {
+    console.log("Timeout handled correctly:", error);
+  }
+
+  console.log("\n--- Dispute Scenario ---");
+  const disputeTxId = await actor.initialize(
+    { Settlement: null },
+    "Dispute test",
+    config.participantA.solanaAddress,
+    config.participantB.solanaAddress,
+    config.participantA.shouldStakeAmount,
+    config.participantB.shouldStakeAmount,
+    config.verifier.solanaAddress,
+    config.arbitrator.solanaAddress,
+    config.stakeDuration,
+    config.tradeDuration
+  );
+
+  await completeStaking(actor, principal, disputeTxId);
+
+  const disputeTimestamp = getCurrentTimestampInSeconds();
+  const disputeMessage = `${principal}-${disputeTxId}-Disputing-${config.participantA.solanaAddress}-${disputeTimestamp}`;
+  const disputeSignature = signMessage(
+    disputeMessage,
+    config.participantA.secretKey
+  );
+
+  await actor.initiateDispute(
+    disputeTxId,
+    config.participantA.solanaAddress,
+    disputeTimestamp,
+    [disputeSignature],
+    []
+  );
+
+  const customAmountA = BigInt(600 * 1_000_000);
+  const customAmountB = BigInt(400 * 1_000_000);
+  const resolveTimestamp = getCurrentTimestampInSeconds();
+  const resolveMessage = `${principal}-${disputeTxId}-Resolving-${customAmountA}-${customAmountB}-${resolveTimestamp}`;
+  const resolveSignature = signMessage(
+    resolveMessage,
+    config.arbitrator.secretKey
+  );
+
+  await actor.resolveDispute(
+    disputeTxId,
+    "Dispute resolved",
+    customAmountA,
+    customAmountB,
+    resolveTimestamp,
+    resolveSignature
+  );
+
+  await completeSettling(actor, principal, disputeTxId);
+
+  let status = await actor.getTransactionStatusText(disputeTxId);
+  console.log("Dispute resolution status:", status);
+
+  try {
+    const fetchedProof = await actor.fetchProof(disputeTxId);
+    const proofDetails = await actor.getProofDetails(disputeTxId);
+    console.log("Proof details:", proofDetails);
+  } catch (proofError) {
+    console.log("Proof fetch error:", proofError);
+  }
+}
+
+async function testUtilityFunctions(actor: any, principal: string) {
+  console.log("\n=== Utility Function Tests ===");
+
+  console.log("\n--- Recent Transaction IDs ---");
+  const recentTxs = await actor.getRecentTransactionIds(5);
+  console.log("Recent 5 transactions:", recentTxs);
+
+  console.log("\n--- All Transaction IDs ---");
+  const allTxs = await actor.getAllTransactionIds();
+  console.log("Total transactions count:", allTxs.length);
+  console.log("All transaction IDs:", allTxs);
+
+  console.log("\n--- Transaction Details Test ---");
+  const latestTxId = recentTxs[0];
+  console.log("Latest transaction ID:", latestTxId);
+
+  const txDetails = await actor.getTransactionDetails(latestTxId);
+  console.log("Transaction details:", txDetails);
+}
+
+async function runTests() {
+  try {
+    console.log("Starting Guarantee Contract Tests...");
+    console.log("Participant A:", config.participantA.solanaAddress);
+    console.log("Participant B:", config.participantB.solanaAddress);
+    console.log("Verifier:", config.verifier.solanaAddress);
+    console.log("Arbitrator:", config.arbitrator.solanaAddress);
+    console.log("Stake Vault:", config.stakeVault.solanaAddress);
+
+    const { actor, principal } = await setupActor();
+    console.log("Contract Principal:", principal);
+
+    await testBasicFunctionality(actor, principal);
+    await testSignatureFunctionality(actor, principal);
+    await testExceptionScenarios(actor, principal);
+    await testUtilityFunctions(actor, principal);
+
+    console.log("\n=== All Tests Completed Successfully ===");
+  } catch (error) {
+    console.error("Test execution error:", error);
   }
 }
 

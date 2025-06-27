@@ -1,19 +1,21 @@
+import IC "ic:aaaaa-aa";
+
+import Array "mo:base/Array";
+import Blob "mo:base/Blob";
 import Error "mo:base/Error";
+import HashMap "mo:base/HashMap";
 import Int "mo:base/Int";
+import Iter "mo:base/Iter";
+import Nat "mo:base/Nat";
 import Principal "mo:base/Principal";
 import Text "mo:base/Text";
 import Time "mo:base/Time";
 
-import Base58 "../lib/base58";
-import Blob "mo:base/Blob";
-import NACL "mo:tweetnacl";
-import Nat "mo:base/Nat";
-
-import HashMap "mo:base/HashMap";
-import IC "ic:aaaaa-aa";
-import Iter "mo:base/Iter";
 import Sha256 "mo:sha2/Sha256";
-import Array "mo:base/Array";
+import NACL "mo:tweetnacl";
+
+import Base58 "../lib/Base58";
+import Hex "../lib/Hex";
 
 actor Guarantee {
   type Status = {
@@ -68,6 +70,12 @@ actor Guarantee {
   private stable var proofEntries : [(Text, Text)] = [];
   private var proofs = HashMap.HashMap<Text, Text>(0, Text.equal, Text.hash);
 
+  private stable var proofUrl : Text = "https://raw.githubusercontent.com/mind-link-ai/guarantee-canister-proof-mock/refs/heads/main/proof";
+  private stable var proofCycles : Nat = 25_000_000_000;
+
+  private stable var schnorrKeyID : Text = "dfx_test_key";
+  private stable var schnorrCycles : Nat = 20_000_000_000;
+
   system func preupgrade() {
     transactionsEntries := Iter.toArray(transactions.entries());
     proofEntries := Iter.toArray(proofs.entries());
@@ -76,8 +84,19 @@ actor Guarantee {
   system func postupgrade() {
     transactions := HashMap.fromIter<Text, TransactionInfo>(transactionsEntries.vals(), transactionsEntries.size(), Text.equal, Text.hash);
     proofs := HashMap.fromIter<Text, Text>(proofEntries.vals(), proofEntries.size(), Text.equal, Text.hash);
+
     transactionsEntries := [];
     proofEntries := [];
+  };
+
+  public shared ({ caller }) func setGlobalConfig(newProofUrl : Text, newProofCycles : Nat, newSchnorrKeyID : Text, newSchnorrCycles : Nat) : async () {
+    assert Principal.isController(caller);
+
+    proofUrl := newProofUrl;
+    proofCycles := newProofCycles;
+
+    schnorrKeyID := newSchnorrKeyID;
+    schnorrCycles := newSchnorrCycles;
   };
 
   public shared func initialize(
@@ -235,10 +254,9 @@ actor Guarantee {
 
   public shared func confirmTradingComplete(
     transactionId : Text,
-    participantATimestamp : Nat,
-    participantBTimestamp : Nat,
-    participantASignature : Text,
-    participantBSignature : Text,
+    participantASignature : ?Text,
+    participantBSignature : ?Text,
+    verifierSignature : ?Text,
   ) : async () {
     switch (transactions.get(transactionId)) {
       case (null) {
@@ -266,16 +284,30 @@ actor Guarantee {
               throw Error.reject("Transaction is not in Staked status");
             };
 
-            if (
-              not verifyTradeSignature(
-                transactionId,
-                participantATimestamp,
-                participantBTimestamp,
-                participantASignature,
-                participantBSignature,
-              )
-            ) {
-              throw Error.reject("Invalid signature");
+            switch (verifierSignature) {
+              case (?signature) {
+                if (not verifyTradeVerifierSignature(transactionId, signature)) {
+                  throw Error.reject("Invalid verifier signature");
+                };
+              };
+              case (null) {
+                switch (participantASignature, participantBSignature) {
+                  case (?signatureA, ?signatureB) {
+                    if (
+                      not verifyTradeParticipantSignature(
+                        transactionId,
+                        signatureA,
+                        signatureB,
+                      )
+                    ) {
+                      throw Error.reject("Invalid participant signatures");
+                    };
+                  };
+                  case (_) {
+                    throw Error.reject("Missing required signatures");
+                  };
+                };
+              };
             };
 
             let updatedTxInfo = switch (txInfo.escrowMode) {
@@ -396,7 +428,8 @@ actor Guarantee {
     transactionId : Text,
     participantSolanaAddress : Text,
     participantDisputeTimestamp : Nat,
-    participantSignature : Text,
+    participantSignature : ?Text,
+    verifierSignature : ?Text,
   ) : async () {
     switch (transactions.get(transactionId)) {
       case (null) {
@@ -424,8 +457,24 @@ actor Guarantee {
               throw Error.reject("Transaction is not in Staked status");
             };
 
-            if (not verifyDisputeSignature(transactionId, participantSolanaAddress, participantDisputeTimestamp, participantSignature)) {
-              throw Error.reject("Invalid signature");
+            switch (verifierSignature) {
+              case (?signature) {
+                if (not verifyDisputeVerifierSignature(transactionId, participantSolanaAddress, participantDisputeTimestamp, signature)) {
+                  throw Error.reject("Invalid verifier signature");
+                };
+              };
+              case (null) {
+                switch (participantSignature) {
+                  case (?signature) {
+                    if (not verifyDisputeParticipantSignature(transactionId, participantSolanaAddress, participantDisputeTimestamp, signature)) {
+                      throw Error.reject("Invalid participant signature");
+                    };
+                  };
+                  case (_) {
+                    throw Error.reject("Missing required signature");
+                  };
+                };
+              };
             };
 
             var updatedTxInfo = txInfo;
@@ -487,12 +536,8 @@ actor Guarantee {
           throw Error.reject("Invalid signature");
         };
 
-        // let host : Text = "api.example.com";
-        // let url = "https://" # host # "/proof/" # transactionId;
-
-        // mock proof data
-        let host : Text = "raw.githubusercontent.com/mind-link-ai/guarantee-canister-proof-mock/refs/heads/main";
-        let url = "https://" # host # "/proof/" # "mock-proof-data.json";
+        // let url = proofUrl # "/" # transactionId;
+        let url = proofUrl # "/" # "mock-proof-data.json";
         let request_headers = [
           { name = "User-Agent"; value = "ICP-Canister-Guarantee" },
         ];
@@ -509,7 +554,7 @@ actor Guarantee {
           };
         };
 
-        let http_response : IC.http_request_result = await (with cycles = 30_000_000_000) IC.http_request(http_request);
+        let http_response : IC.http_request_result = await (with cycles = proofCycles) IC.http_request(http_request);
 
         if (http_response.status != 200) {
           throw Error.reject("HTTP request failed with status: " # Nat.toText(http_response.status));
@@ -518,12 +563,6 @@ actor Guarantee {
         let proof : Text = switch (Text.decodeUtf8(http_response.body)) {
           case (null) { throw Error.reject("No proof data returned") };
           case (?data) {
-            // if (not Text.contains(data, #text transactionId)) {
-            //   throw Error.reject("Proof data does not match transaction ID");
-            // };
-            // if (not Text.contains(data, #text "proofs")) {
-            //   throw Error.reject("Proof data does not contain proofs field");
-            // };
             data;
           };
         };
@@ -569,10 +608,25 @@ actor Guarantee {
     };
   };
 
-  private func verifyTradeSignature(
+  private func verifyTradeVerifierSignature(
     transactionId : Text,
-    participantATimestamp : Nat,
-    participantBTimestamp : Nat,
+    verifierSignature : Text,
+  ) : Bool {
+    switch (transactions.get(transactionId)) {
+      case (null) { return false };
+      case (?txInfo) {
+        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
+        let message = thisCanisterPrincipalText # "-" # transactionId # "-" # "Trading";
+        let messageBytes = Blob.toArray(Text.encodeUtf8(message));
+        let signatureBytes = Base58.decode(verifierSignature);
+        let publicKeyBytes = Base58.decode(txInfo.verifierSolanaAddress);
+        return NACL.SIGN.DETACHED.verify(messageBytes, signatureBytes, publicKeyBytes);
+      };
+    };
+  };
+
+  private func verifyTradeParticipantSignature(
+    transactionId : Text,
     participantASignature : Text,
     participantBSignature : Text,
   ) : Bool {
@@ -580,8 +634,8 @@ actor Guarantee {
       case (null) { return false };
       case (?txInfo) {
         let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
-        let messageA = thisCanisterPrincipalText # "-" # transactionId # "-" # "Trading" # "-" # Nat.toText(participantATimestamp);
-        let messageB = thisCanisterPrincipalText # "-" # transactionId # "-" # "Trading" # "-" # Nat.toText(participantBTimestamp);
+        let messageA = thisCanisterPrincipalText # "-" # transactionId # "-" # "Trading";
+        let messageB = thisCanisterPrincipalText # "-" # transactionId # "-" # "Trading";
         let messageABytes = Blob.toArray(Text.encodeUtf8(messageA));
         let messageBBytes = Blob.toArray(Text.encodeUtf8(messageB));
         let signatureABytes = Base58.decode(participantASignature);
@@ -615,7 +669,26 @@ actor Guarantee {
     };
   };
 
-  private func verifyDisputeSignature(
+  private func verifyDisputeVerifierSignature(
+    transactionId : Text,
+    participantSolanaAddress : Text,
+    participantDisputeTimestamp : Nat,
+    verifierSignature : Text,
+  ) : Bool {
+    switch (transactions.get(transactionId)) {
+      case (null) { return false };
+      case (?txInfo) {
+        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
+        let message = thisCanisterPrincipalText # "-" # transactionId # "-" # "Disputing" # "-" # participantSolanaAddress # "-" # Nat.toText(participantDisputeTimestamp);
+        let messageBytes = Blob.toArray(Text.encodeUtf8(message));
+        let signatureBytes = Base58.decode(verifierSignature);
+        let publicKeyBytes = Base58.decode(txInfo.verifierSolanaAddress);
+        return NACL.SIGN.DETACHED.verify(messageBytes, signatureBytes, publicKeyBytes);
+      };
+    };
+  };
+
+  private func verifyDisputeParticipantSignature(
     transactionId : Text,
     participantSolanaAddress : Text,
     participantTimestamp : Nat,
@@ -625,7 +698,7 @@ actor Guarantee {
       case (null) { return false };
       case (?txInfo) {
         let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
-        let message = thisCanisterPrincipalText # "-" # transactionId # "-" # "Disputing" # "-" # Nat.toText(participantTimestamp);
+        let message = thisCanisterPrincipalText # "-" # transactionId # "-" # "Disputing" # "-" # participantSolanaAddress # "-" # Nat.toText(participantTimestamp);
         let messageBytes = Blob.toArray(Text.encodeUtf8(message));
         let signatureBytes = Base58.decode(participantSignature);
         if (Text.equal(participantSolanaAddress, txInfo.participantA.participantSolanaAddress)) {
@@ -661,18 +734,23 @@ actor Guarantee {
     };
   };
 
+  public query func transform({
+    context : Blob;
+    response : IC.http_request_result;
+  }) : async IC.http_request_result {
+    {
+      response with headers = [];
+    };
+  };
+
   public shared func fetchProof(transactionId : Text) : async Text {
     switch (transactions.get(transactionId)) {
       case (null) {
         throw Error.reject("Transaction not found");
       };
       case (?txInfo) {
-        // let host : Text = "api.example.com";
-        // let url = "https://" # host # "/proof/" # transactionId;
-
-        // mock proof data
-        let host : Text = "raw.githubusercontent.com/mind-link-ai/guarantee-canister-proof-mock/refs/heads/main";
-        let url = "https://" # host # "/proof/" # "mock-proof-data.json";
+        // let url = proofUrl # "/" # transactionId;
+        let url = proofUrl # "/" # "mock-proof-data.json";
         let request_headers = [
           { name = "User-Agent"; value = "ICP-Canister-Guarantee" },
         ];
@@ -689,7 +767,7 @@ actor Guarantee {
           };
         };
 
-        let http_response : IC.http_request_result = await (with cycles = 30_000_000_000) IC.http_request(http_request);
+        let http_response : IC.http_request_result = await (with cycles = proofCycles) IC.http_request(http_request);
 
         if (http_response.status != 200) {
           throw Error.reject("HTTP request failed with status: " # Nat.toText(http_response.status));
@@ -698,12 +776,6 @@ actor Guarantee {
         let proof : Text = switch (Text.decodeUtf8(http_response.body)) {
           case (null) { throw Error.reject("No proof data returned") };
           case (?data) {
-            // if (not Text.contains(data, #text transactionId)) {
-            //   throw Error.reject("Proof data does not match transaction ID");
-            // };
-            // if (not Text.contains(data, #text "proofs")) {
-            //   throw Error.reject("Proof data does not contain proofs field");
-            // };
             data;
           };
         };
@@ -713,12 +785,106 @@ actor Guarantee {
     };
   };
 
-  public query func transform({
-    context : Blob;
-    response : IC.http_request_result;
-  }) : async IC.http_request_result {
-    {
-      response with headers = [];
+  public query func getProofDetails(transactionId : Text) : async ?Text {
+    proofs.get(transactionId);
+  };
+
+  public shared func getSchnorrPublicKey() : async Text {
+    let publicKeyArgs = {
+      derivation_path = [Principal.toBlob(Principal.fromActor(Guarantee))];
+      key_id = { algorithm = #ed25519; name = schnorrKeyID };
+      canister_id = null;
+    };
+
+    let { public_key } = await (with cycles = schnorrCycles) IC.schnorr_public_key(publicKeyArgs);
+    return Hex.encode(Blob.toArray(public_key));
+  };
+
+  public query func getSignWithSchnorrContent(transactionId : Text) : async Text {
+    switch (transactions.get(transactionId)) {
+      case (null) {
+        throw Error.reject("Transaction not found");
+      };
+      case (?txInfo) {
+        if (not (txInfo.status == #Traded or txInfo.status == #Timeout or txInfo.status == #Resolved or txInfo.status == #Settling)) {
+          throw Error.reject("Transaction is not in Traded/Timeout/Resolved/Settling status");
+        };
+
+        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
+
+        let statusText = switch (txInfo.status) {
+          case (#Traded) "Traded";
+          case (#Timeout) "Timeout";
+          case (#Resolved) "Resolved";
+          case (#Settling) "Settling";
+          case (_) throw Error.reject("Transaction is not in Traded/Timeout/Resolved/Settling status");
+        };
+
+        let escrowModeText = switch (txInfo.escrowMode) {
+          case (#Mutual) "Mutual";
+          case (#Settlement) "Settlement";
+        };
+
+        let message = thisCanisterPrincipalText # "-" #
+        transactionId # "-" #
+        statusText # "-" #
+        escrowModeText # "-" #
+        txInfo.participantA.participantSolanaAddress # "-" #
+        Nat.toText(txInfo.participantA.withdrawableUSDCAmount) # "-" #
+        txInfo.participantB.participantSolanaAddress # "-" #
+        Nat.toText(txInfo.participantB.withdrawableUSDCAmount) # "-" #
+        "CanSettle";
+
+        return message;
+      };
+    };
+  };
+
+  public shared func signWithSchnorr(transactionId : Text) : async Text {
+    switch (transactions.get(transactionId)) {
+      case (null) {
+        throw Error.reject("Transaction not found");
+      };
+      case (?txInfo) {
+        if (not (txInfo.status == #Traded or txInfo.status == #Timeout or txInfo.status == #Resolved or txInfo.status == #Settling)) {
+          throw Error.reject("Transaction is not in Traded/Timeout/Resolved/Settling status");
+        };
+
+        let thisCanisterPrincipalText = privateGetThisCanisterPrincipalText();
+
+        let statusText = switch (txInfo.status) {
+          case (#Traded) "Traded";
+          case (#Timeout) "Timeout";
+          case (#Resolved) "Resolved";
+          case (#Settling) "Settling";
+          case (_) throw Error.reject("Transaction is not in Traded/Timeout/Resolved/Settling status");
+        };
+
+        let escrowModeText = switch (txInfo.escrowMode) {
+          case (#Mutual) "Mutual";
+          case (#Settlement) "Settlement";
+        };
+
+        let message = thisCanisterPrincipalText # "-" #
+        transactionId # "-" #
+        statusText # "-" #
+        escrowModeText # "-" #
+        txInfo.participantA.participantSolanaAddress # "-" #
+        Nat.toText(txInfo.participantA.withdrawableUSDCAmount) # "-" #
+        txInfo.participantB.participantSolanaAddress # "-" #
+        Nat.toText(txInfo.participantB.withdrawableUSDCAmount) # "-" #
+        "CanSettle";
+
+        let signArgs = {
+          message = Text.encodeUtf8(message);
+          derivation_path = [Principal.toBlob(Principal.fromActor(Guarantee))];
+          key_id = { algorithm = #ed25519; name = schnorrKeyID };
+          aux = null;
+        };
+
+        let { signature } = await (with cycles = schnorrCycles) IC.sign_with_schnorr(signArgs);
+        return Hex.encode(Blob.toArray(signature));
+      };
     };
   };
 
@@ -759,10 +925,6 @@ actor Guarantee {
 
   public query func getTransactionDetails(transactionId : Text) : async ?TransactionInfo {
     transactions.get(transactionId);
-  };
-
-  public query func getProofDetails(transactionId : Text) : async ?Text {
-    proofs.get(transactionId);
   };
 
   public query func getRecentTransactionIds(limit : Nat) : async [Text] {

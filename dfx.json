@@ -1,8 +1,11 @@
 {
   "canisters": {
     "guarantee": {
+      "type": "motoko",
       "main": "canisters/guarantee/main.mo",
-      "type": "motoko"
+      "controllers": [
+        "h3gxa-m26hh-3mc6x-dnfvt-nztyl-ni4qp-je4g6-dycso-2meef-ma2jv-oqe"
+      ]
     }
   },
   "defaults": {
