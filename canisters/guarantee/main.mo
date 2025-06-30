@@ -71,10 +71,10 @@ actor Guarantee {
   private var proofs = HashMap.HashMap<Text, Text>(0, Text.equal, Text.hash);
 
   private stable var proofUrl : Text = "https://raw.githubusercontent.com/mind-link-ai/guarantee-canister-proof-mock/refs/heads/main/proof";
-  private stable var proofCycles : Nat = 25_000_000_000;
+  private stable var proofCycles : Nat = 30_000_000_000;
 
   private stable var schnorrKeyID : Text = "dfx_test_key";
-  private stable var schnorrCycles : Nat = 20_000_000_000;
+  private stable var schnorrCycles : Nat = 30_000_000_000;
 
   system func preupgrade() {
     transactionsEntries := Iter.toArray(transactions.entries());
