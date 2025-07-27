@@ -2,7 +2,8 @@
   "private": true,
   "scripts": {
     "deploy:local": "dfx deploy",
-    "test:guarantee": "ts-node tests/guarantee.test.ts"
+    "test:guarantee": "ts-node tests/guarantee.test.ts",
+    "start": "ts-node server.ts"
   },
   "engines": {
     "node": ">=20",
@@ -20,6 +21,7 @@
     "prettier": "^3.6.1",
     "ts-node": "^10.9.2",
     "tweetnacl": "^1.0.3",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "express": "^4.18.2"
   }
 }

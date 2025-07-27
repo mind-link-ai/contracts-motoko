@@ -13,3 +13,10 @@
 `pnpm deploy:local`
 
 `pnpm test:guarantee`
+
+`cp .env.example .env` # then edit values including `IDENTITY_JSON_PATH`
+
+`pnpm start`
+
+Use the `/setGlobalConfig` endpoint to set `proofUrl`, `proofCycles`,
+`schnorrKeyID`, and `schnorrCycles` after deploying to mainnet.
