@@ -1,9 +1,10 @@
-import fs from 'fs';
-import express, { Request, Response } from 'express';
+import * as fs from 'fs';
+import * as express from 'express';
+import { Response, Request } from 'express'
 import { Actor, HttpAgent } from '@dfinity/agent';
 import { Ed25519KeyIdentity } from '@dfinity/identity';
 import { idlFactory } from './.dfx/local/canisters/guarantee/service.did.js';
-import dotenv from 'dotenv';
+import * as dotenv from "dotenv";
 
 dotenv.config();
 
@@ -20,7 +21,7 @@ if (!IDENTITY_JSON_PATH) {
 
 function createActor() {
   const json = fs.readFileSync(IDENTITY_JSON_PATH!, 'utf8');
-  const identity = Ed25519KeyIdentity.fromParsedJson(JSON.parse(json));
+  const identity = Ed25519KeyIdentity.fromJSON(json);
   const agent = new HttpAgent({ host: ICP_HOST, identity, verifyQuerySignatures: false });
   return Actor.createActor(idlFactory, { agent, canisterId: CANISTER_ID });
 }
