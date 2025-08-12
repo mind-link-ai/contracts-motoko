@@ -1,39 +1,52 @@
-import * as fs from 'fs';
-import * as express from 'express';
-import { Response, Request } from 'express'
-import { Actor, HttpAgent } from '@dfinity/agent';
-import { Ed25519KeyIdentity } from '@dfinity/identity';
-import { idlFactory } from './.dfx/local/canisters/guarantee/service.did.js';
+import * as fs from "fs";
+import * as express from "express";
+import { Response, Request } from "express";
+import { Actor, HttpAgent } from "@dfinity/agent";
+import { Ed25519KeyIdentity } from "@dfinity/identity";
+import { idlFactory } from "./.dfx/local/canisters/guarantee/service.did.js";
 import * as dotenv from "dotenv";
 
 dotenv.config();
 
 const CANISTER_ID = process.env.CANISTER_ID_GUARANTEE as string;
-const ICP_HOST = process.env.ICP_HOST || 'http://127.0.0.1:4943';
+const ICP_HOST = process.env.ICP_HOST || "http://127.0.0.1:4943";
 const IDENTITY_JSON_PATH = process.env.IDENTITY_JSON_PATH;
 
 if (!CANISTER_ID) {
-  throw new Error('CANISTER_ID_GUARANTEE env variable missing');
+  throw new Error("CANISTER_ID_GUARANTEE env variable missing");
 }
 if (!IDENTITY_JSON_PATH) {
-  throw new Error('IDENTITY_JSON_PATH env variable missing');
+  throw new Error("IDENTITY_JSON_PATH env variable missing");
 }
 
 function createActor() {
-  const json = fs.readFileSync(IDENTITY_JSON_PATH!, 'utf8');
-  const identity = Ed25519KeyIdentity.fromJSON(json);
-  const agent = new HttpAgent({ host: ICP_HOST, identity, verifyQuerySignatures: false });
+  let identity: Ed25519KeyIdentity;
+  if (fs.existsSync(IDENTITY_JSON_PATH!)) {
+    const json = fs.readFileSync(IDENTITY_JSON_PATH!, "utf8");
+    identity = Ed25519KeyIdentity.fromJSON(json);
+  } else {
+    identity = Ed25519KeyIdentity.generate();
+    const json = JSON.stringify(identity.toJSON());
+    fs.writeFileSync(IDENTITY_JSON_PATH!, json);
+  }
+  const agent = new HttpAgent({
+    host: ICP_HOST,
+    identity,
+    verifyQuerySignatures: false,
+  });
   return Actor.createActor(idlFactory, { agent, canisterId: CANISTER_ID });
 }
-
 
 const app = express();
 app.use(express.json());
 
-app.post('/initialize', async (req: Request, res: Response) => {
+app.post("/initialize", async (req: Request, res: Response) => {
   try {
     const actor = createActor();
-    const mode = req.body.escrowMode === 'Mutual' ? { Mutual: null } : { Settlement: null };
+    const mode =
+      req.body.escrowMode === "Mutual"
+        ? { Mutual: null }
+        : { Settlement: null };
     const txId = await actor.initialize(
       mode,
       req.body.comments,
@@ -44,7 +57,7 @@ app.post('/initialize', async (req: Request, res: Response) => {
       req.body.verifierSolanaAddress,
       req.body.arbitratorSolanaAddress,
       BigInt(req.body.stakeDuration),
-      BigInt(req.body.tradeDuration)
+      BigInt(req.body.tradeDuration),
     );
     res.json({ txId });
   } catch (err) {
@@ -53,7 +66,7 @@ app.post('/initialize', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/confirmStaking', async (req: Request, res: Response) => {
+app.post("/confirmStaking", async (req: Request, res: Response) => {
   try {
     const actor = createActor();
     await actor.confirmStakingComplete(
@@ -61,7 +74,7 @@ app.post('/confirmStaking', async (req: Request, res: Response) => {
       req.body.stakeVaultSolanaAddress,
       req.body.participantSolanaAddress,
       BigInt(req.body.participantStakeTimestamp),
-      req.body.verifierSignature
+      req.body.verifierSignature,
     );
     res.json({ success: true });
   } catch (err) {
@@ -70,14 +83,14 @@ app.post('/confirmStaking', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/confirmTrading', async (req: Request, res: Response) => {
+app.post("/confirmTrading", async (req: Request, res: Response) => {
   try {
     const actor = createActor();
     await actor.confirmTradingComplete(
       req.body.transactionId,
       req.body.participantASignature ? [req.body.participantASignature] : [],
       req.body.participantBSignature ? [req.body.participantBSignature] : [],
-      req.body.verifierSignature ? [req.body.verifierSignature] : []
+      req.body.verifierSignature ? [req.body.verifierSignature] : [],
     );
     res.json({ success: true });
   } catch (err) {
@@ -86,7 +99,7 @@ app.post('/confirmTrading', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/confirmSettling', async (req: Request, res: Response) => {
+app.post("/confirmSettling", async (req: Request, res: Response) => {
   try {
     const actor = createActor();
     await actor.confirmSettlingComplete(
@@ -94,7 +107,7 @@ app.post('/confirmSettling', async (req: Request, res: Response) => {
       req.body.stakeVaultSolanaAddress,
       req.body.participantSolanaAddress,
       BigInt(req.body.participantSettleTimestamp),
-      req.body.verifierSignature
+      req.body.verifierSignature,
     );
     res.json({ success: true });
   } catch (err) {
@@ -103,7 +116,7 @@ app.post('/confirmSettling', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/initiateDispute', async (req: Request, res: Response) => {
+app.post("/initiateDispute", async (req: Request, res: Response) => {
   try {
     const actor = createActor();
     await actor.initiateDispute(
@@ -111,7 +124,7 @@ app.post('/initiateDispute', async (req: Request, res: Response) => {
       req.body.participantSolanaAddress,
       BigInt(req.body.participantDisputeTimestamp),
       req.body.participantSignature ? [req.body.participantSignature] : [],
-      req.body.verifierSignature ? [req.body.verifierSignature] : []
+      req.body.verifierSignature ? [req.body.verifierSignature] : [],
     );
     res.json({ success: true });
   } catch (err) {
@@ -120,7 +133,7 @@ app.post('/initiateDispute', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/resolveDispute', async (req: Request, res: Response) => {
+app.post("/resolveDispute", async (req: Request, res: Response) => {
   try {
     const actor = createActor();
     await actor.resolveDispute(
@@ -129,7 +142,7 @@ app.post('/resolveDispute', async (req: Request, res: Response) => {
       BigInt(req.body.participantAWithdrawableUSDCAmount),
       BigInt(req.body.participantBWithdrawableUSDCAmount),
       BigInt(req.body.arbitratorResolveTimestamp),
-      req.body.arbitratorSignature
+      req.body.arbitratorSignature,
     );
     res.json({ success: true });
   } catch (err) {
@@ -138,7 +151,7 @@ app.post('/resolveDispute', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/signWithSchnorr', async (req: Request, res: Response) => {
+app.post("/signWithSchnorr", async (req: Request, res: Response) => {
   try {
     const actor = createActor();
     const signature = await actor.signWithSchnorr(req.body.transactionId);
@@ -149,14 +162,14 @@ app.post('/signWithSchnorr', async (req: Request, res: Response) => {
   }
 });
 
-app.post('/setGlobalConfig', async (req: Request, res: Response) => {
+app.post("/setGlobalConfig", async (req: Request, res: Response) => {
   try {
     const actor = createActor();
     await actor.setGlobalConfig(
       req.body.newProofUrl,
       BigInt(req.body.newProofCycles),
       req.body.newSchnorrKeyID,
-      BigInt(req.body.newSchnorrCycles)
+      BigInt(req.body.newSchnorrCycles),
     );
     res.json({ success: true });
   } catch (err) {
@@ -165,7 +178,7 @@ app.post('/setGlobalConfig', async (req: Request, res: Response) => {
   }
 });
 
-app.get('/schnorrPublicKey', async (_req: Request, res: Response) => {
+app.get("/schnorrPublicKey", async (_req: Request, res: Response) => {
   try {
     const actor = createActor();
     const key = await actor.getSchnorrPublicKey();
@@ -176,7 +189,7 @@ app.get('/schnorrPublicKey', async (_req: Request, res: Response) => {
   }
 });
 
-app.get('/signWithSchnorrContent/:id', async (req: Request, res: Response) => {
+app.get("/signWithSchnorrContent/:id", async (req: Request, res: Response) => {
   try {
     const actor = createActor();
     const content = await actor.getSignWithSchnorrContent(req.params.id);
@@ -187,7 +200,7 @@ app.get('/signWithSchnorrContent/:id', async (req: Request, res: Response) => {
   }
 });
 
-app.get('/canisterPrincipal', async (_req: Request, res: Response) => {
+app.get("/canisterPrincipal", async (_req: Request, res: Response) => {
   try {
     const actor = createActor();
     const principal = await actor.getThisCanisterPrincipalText();
@@ -198,7 +211,7 @@ app.get('/canisterPrincipal', async (_req: Request, res: Response) => {
   }
 });
 
-app.get('/transaction/:id', async (req: Request, res: Response) => {
+app.get("/transaction/:id", async (req: Request, res: Response) => {
   try {
     const actor = createActor();
     const details = await actor.getTransactionDetails(req.params.id);
