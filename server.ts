@@ -11,6 +11,7 @@ dotenv.config();
 const CANISTER_ID = process.env.CANISTER_ID_GUARANTEE as string;
 const ICP_HOST = process.env.ICP_HOST || "http://127.0.0.1:4943";
 const IDENTITY_JSON_PATH = process.env.IDENTITY_JSON_PATH;
+const AGENT = createActor();
 
 if (!CANISTER_ID) {
   throw new Error("CANISTER_ID_GUARANTEE env variable missing");
@@ -19,7 +20,7 @@ if (!IDENTITY_JSON_PATH) {
   throw new Error("IDENTITY_JSON_PATH env variable missing");
 }
 
-function createActor() {
+async function createActor() {
   let identity: Ed25519KeyIdentity;
   if (fs.existsSync(IDENTITY_JSON_PATH!)) {
     const json = fs.readFileSync(IDENTITY_JSON_PATH!, "utf8");
@@ -29,11 +30,12 @@ function createActor() {
     const json = JSON.stringify(identity.toJSON());
     fs.writeFileSync(IDENTITY_JSON_PATH!, json);
   }
-  const agent = new HttpAgent({
+  const agent = HttpAgent.createSync({
     host: ICP_HOST,
     identity,
     verifyQuerySignatures: false,
   });
+  await agent.fetchRootKey();
   return Actor.createActor(idlFactory, { agent, canisterId: CANISTER_ID });
 }
 
@@ -42,7 +44,7 @@ app.use(express.json());
 
 app.post("/initialize", async (req: Request, res: Response) => {
   try {
-    const actor = createActor();
+    const actor = await AGENT;
     const mode =
       req.body.escrowMode === "Mutual"
         ? { Mutual: null }
@@ -68,7 +70,7 @@ app.post("/initialize", async (req: Request, res: Response) => {
 
 app.post("/confirmStaking", async (req: Request, res: Response) => {
   try {
-    const actor = createActor();
+    const actor = await AGENT;
     await actor.confirmStakingComplete(
       req.body.transactionId,
       req.body.stakeVaultSolanaAddress,
@@ -85,7 +87,7 @@ app.post("/confirmStaking", async (req: Request, res: Response) => {
 
 app.post("/confirmTrading", async (req: Request, res: Response) => {
   try {
-    const actor = createActor();
+    const actor = await AGENT;
     await actor.confirmTradingComplete(
       req.body.transactionId,
       req.body.participantASignature ? [req.body.participantASignature] : [],
@@ -101,7 +103,7 @@ app.post("/confirmTrading", async (req: Request, res: Response) => {
 
 app.post("/confirmSettling", async (req: Request, res: Response) => {
   try {
-    const actor = createActor();
+    const actor = await AGENT;
     await actor.confirmSettlingComplete(
       req.body.transactionId,
       req.body.stakeVaultSolanaAddress,
@@ -118,7 +120,7 @@ app.post("/confirmSettling", async (req: Request, res: Response) => {
 
 app.post("/initiateDispute", async (req: Request, res: Response) => {
   try {
-    const actor = createActor();
+    const actor = await AGENT;
     await actor.initiateDispute(
       req.body.transactionId,
       req.body.participantSolanaAddress,
@@ -135,7 +137,7 @@ app.post("/initiateDispute", async (req: Request, res: Response) => {
 
 app.post("/resolveDispute", async (req: Request, res: Response) => {
   try {
-    const actor = createActor();
+    const actor = await AGENT;
     await actor.resolveDispute(
       req.body.transactionId,
       req.body.comments,
@@ -153,7 +155,7 @@ app.post("/resolveDispute", async (req: Request, res: Response) => {
 
 app.post("/signWithSchnorr", async (req: Request, res: Response) => {
   try {
-    const actor = createActor();
+    const actor = await AGENT;
     const signature = await actor.signWithSchnorr(req.body.transactionId);
     res.json({ signature });
   } catch (err) {
@@ -162,25 +164,9 @@ app.post("/signWithSchnorr", async (req: Request, res: Response) => {
   }
 });
 
-app.post("/setGlobalConfig", async (req: Request, res: Response) => {
-  try {
-    const actor = createActor();
-    await actor.setGlobalConfig(
-      req.body.newProofUrl,
-      BigInt(req.body.newProofCycles),
-      req.body.newSchnorrKeyID,
-      BigInt(req.body.newSchnorrCycles),
-    );
-    res.json({ success: true });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: String(err) });
-  }
-});
-
 app.get("/schnorrPublicKey", async (_req: Request, res: Response) => {
   try {
-    const actor = createActor();
+    const actor = await AGENT;
     const key = await actor.getSchnorrPublicKey();
     res.json({ key });
   } catch (err) {
@@ -191,7 +177,7 @@ app.get("/schnorrPublicKey", async (_req: Request, res: Response) => {
 
 app.get("/signWithSchnorrContent/:id", async (req: Request, res: Response) => {
   try {
-    const actor = createActor();
+    const actor = await AGENT;
     const content = await actor.getSignWithSchnorrContent(req.params.id);
     res.json({ content });
   } catch (err) {
@@ -202,7 +188,7 @@ app.get("/signWithSchnorrContent/:id", async (req: Request, res: Response) => {
 
 app.get("/canisterPrincipal", async (_req: Request, res: Response) => {
   try {
-    const actor = createActor();
+    const actor = await AGENT;
     const principal = await actor.getThisCanisterPrincipalText();
     res.json({ principal });
   } catch (err) {
@@ -213,9 +199,12 @@ app.get("/canisterPrincipal", async (_req: Request, res: Response) => {
 
 app.get("/transaction/:id", async (req: Request, res: Response) => {
   try {
-    const actor = createActor();
+    const actor = await AGENT;
     const details = await actor.getTransactionDetails(req.params.id);
-    res.json({ details });
+    const resolvedDetails = JSON.parse(JSON.stringify(details, (key, value) =>
+      typeof value === 'bigint' ? value.toString() : value
+    ));
+    res.json(resolvedDetails);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: String(err) });
