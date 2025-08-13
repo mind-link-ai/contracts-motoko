@@ -43,16 +43,16 @@ utility helpers for querying transaction history.
 
 Follow these steps to run the project locally:
 
-1. `sh -ci "$(curl -fsSL https://internetcomputer.org/install.sh)"`
-2. `npm i -g pnpm ic-mops`
-3. `pnpm i`
-4. `mops i`
-5. `modify file dfx.json - canisters.guarantee.controllers`
-6. `dfx start --background`
-7. `pnpm deploy:local`
-8. `pnpm test:guarantee`
-9. `cp .env.example .env` # then edit values including `IDENTITY_JSON_PATH`
-10. `pnpm start`
+1. `sh -ci "$(curl -fsSL https://internetcomputer.org/install.sh)"` to install command-line execution environment
+2. `npm i -g pnpm ic-mops` to install package manager for the Motoko programming language
+3. `pnpm i` to install Node dependencies
+4. `mops i` to install Motoko dependencies
+5. `modify file dfx.json - canisters.guarantee.controllers` to setup custom controller (if any)
+6. `dfx start --background` to setup local instance
+7. `pnpm deploy:local` to deploy canister onto local instance
+8. `pnpm test:guarantee` to run tests
+9. `cp .env.example .env` # then edit env values
+10. `pnpm start` to start backend APIs server
 11. Use the `/setGlobalConfig` endpoint to set `proofUrl`, `proofCycles`,
     `schnorrKeyID`, and `schnorrCycles` after deploying to mainnet.
 
