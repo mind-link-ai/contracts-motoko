@@ -23,5 +23,5 @@ dist/
 
 # environment variables
 .env
-identity.json
 .mops
+*_keypair.json

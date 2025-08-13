@@ -522,7 +522,7 @@ actor Guarantee {
         throw Error.reject("Transaction not found");
       };
       case (?txInfo) {
-        if (not (txInfo.status == #Disputing)) {
+        if (not (txInfo.status == #Disputing or txInfo.status == #Resolved)) {
           throw Error.reject("Transaction is not in Disputing status");
         };
 
