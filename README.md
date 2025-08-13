@@ -1,24 +1,24 @@
-# TradeOS Contracts
+# TradeOS Decentralized Policy Engine
 
 ## Overview
 
-TradeOS is a decentralized policy engine composed of modular smart
-contracts. The platform emphasizes configurability so that different
-trading scenarios can plug in without rewriting the entire system. By
+At the heart of TradeOS is a collection of smart contracts designed to be 
+modular and configurable, allowing different trading scenarios and 
+requirements to plug in without rewriting the entire system. By
 leveraging a fully decentralized architecture, no single entity can
 unilaterally control or censor trades. The engine coordinates with
 multichain vaults to escrow assets securely and accepts multiple trust
-mechanisms—such as zkTLS or TEE‑TLS—to verify delivery proofs or dispute
-evidence. A domain‑specific language, **TPL (TradeOS Policy Language)**,
+mechanisms -- such as zkTLS or TEE‑TLS -- to verify delivery proofs or 
+dispute evidence. A domain‑specific language, **TPL (TradeOS Policy Language)**,
 allows traders to script custom policies while still benefiting from
 community‑maintained templates for common P2P flows. By unifying multiple
 blockchains and user bases, TradeOS aims to share liquidity globally and
 enable cross‑chain commerce at scale.
 
-## Guarantee Canister & API
+## Escrow Payment Canister & APIs
 
 This repository contains an Express server (`server.ts`) that interfaces
-with the `guarantee` canister. The server exposes a REST API for managing
+with the escrow payment canister. The server exposes a REST API for managing
 escrow transactions and related actions:
 
 - `POST /initialize` – start an escrow transaction
@@ -31,9 +31,9 @@ escrow transactions and related actions:
 - `POST /signWithSchnorr` – obtain a Schnorr signature for settlement
 - `GET /schnorrPublicKey` – fetch the signing public key
 - `GET /signWithSchnorrContent/:id` – view the payload used for signing
-- `GET /canisterPrincipal` – return the canister principal text
 - `GET /transaction/:id` – inspect transaction details
 - `GET /proof/:id` – retrieve any attached proof for a transaction
+- `GET /canisterPrincipal` – return the canister principal text
 
 The accompanying test suite (`tests/guarantee.test.ts`) demonstrates
 basic trade lifecycles, signature verification, dispute handling, and
