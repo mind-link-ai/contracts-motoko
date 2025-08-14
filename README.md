@@ -37,9 +37,59 @@ escrow transactions and related actions:
 - `GET /proof/:id` – retrieve any attached proof for a transaction
 - `GET /canisterPrincipal` – return the canister principal text
 
+### Escrow Modes
+
+`POST /initialize` accepts an optional `escrowMode` parameter:
+
+- **Settlement** (default): Party A's stake amount is transferred to party B after settlement.
+- **Mutual**: Each party's stake is returned to its original owner after settlement.
+
 The accompanying test suite (`tests/guarantee.test.ts`) demonstrates
 basic trade lifecycles, signature verification, dispute handling, and
 utility helpers for querying transaction history.
+
+## Proof-of-Delivery Specification
+
+When a dispute is resolved the canister performs an HTTP GET request to
+`{proofUrl}/{transactionId}`. The endpoint is expected to return a JSON
+payload matching the following schema, which the canister stores as the
+transaction's proof of delivery.
+
+### Fields
+
+| Field               | Description                                                 |
+| ------------------- | ----------------------------------------------------------- |
+| `version`           | Version of the proof data format                            |
+| `generatedAt`       | Timestamp of when the proof data was generated (Unix epoch) |
+| `transactionId`     | The ID of the current transaction                           |
+| `resolutionId`      | The ID of the resolution                                    |
+| `market`            | The market where the transaction took place                 |
+| `buyerAddress`      | The blockchain address of the buyer                         |
+| `sellerAddress`     | The blockchain address of the seller                        |
+| `arbitratorAddress` | The blockchain address of the arbitrator                    |
+| `assetType`         | The type of asset involved in the transaction               |
+| `assetAmount`       | The amount of the asset (in smallest units)                 |
+| `resolution`        | The final resolution of the dispute (`Refund buyer`, `Refund seller`, or `Refund both`) |
+| `resolvedAt`        | Timestamp of when the dispute was resolved (Unix epoch)     |
+| `reasonCode`        | Code indicating the reason for the resolution               |
+| `proofs`            | An array of proof objects                                   |
+| `payloadHash`       | Hash of the payload                                         |
+| `signature`         | Digital signature of the proof data                         |
+| `sigAlgo`           | Signature algorithm used                                    |
+
+Possible `reasonCode` values include: `ITEM_NOT_RECEIVED`, `NOT_AS_DESCRIBED`,
+`PARTIAL_DELIVERY`, `GOODS_DAMAGED`, `SERVICE_NOT_RENDERED`, `LATE_DELIVERY`,
+`ALREADY_CANCELLED`.
+
+### Proof Object
+
+Each object in the `proofs` array can have the following fields:
+
+| Field            | Description                                                              |
+| ---------------- | ------------------------------------------------------------------------ |
+| `type`           | Type of proof                                                            |
+| `url` (optional) | URL where the proof can be accessed (e.g., for screenshots or chat logs) |
+| `sha256`         | SHA256 hash of the proof content                                         |
 
 ## Setup
 
