@@ -70,10 +70,10 @@ actor Guarantee {
   private stable var proofEntries : [(Text, Text)] = [];
   private var proofs = HashMap.HashMap<Text, Text>(0, Text.equal, Text.hash);
 
-  private stable var proofUrl : Text = "https://raw.githubusercontent.com/mind-link-ai/guarantee-canister-proof-mock/refs/heads/main/proof";
+  private stable var proofUrl : Text = "https://p2p.tradeos.xyz/api/proof";
   private stable var proofCycles : Nat = 30_000_000_000;
 
-  private stable var schnorrKeyID : Text = "dfx_test_key";
+  private stable var schnorrKeyID : Text = "key_1";
   private stable var schnorrCycles : Nat = 30_000_000_000;
 
   system func preupgrade() {
@@ -536,8 +536,8 @@ actor Guarantee {
           throw Error.reject("Invalid signature");
         };
 
-        // let url = proofUrl # "/" # transactionId;
-        let url = proofUrl # "/" # "mock-proof-data.json";
+        let url = proofUrl # "/" # transactionId;
+        // let url = proofUrl # "/" # "mock-proof-data.json";
         let request_headers = [
           { name = "User-Agent"; value = "ICP-Canister-Guarantee" },
         ];
@@ -749,8 +749,8 @@ actor Guarantee {
         throw Error.reject("Transaction not found");
       };
       case (?txInfo) {
-        // let url = proofUrl # "/" # transactionId;
-        let url = proofUrl # "/" # "mock-proof-data.json";
+        let url = proofUrl # "/" # transactionId;
+        // let url = proofUrl # "/" # "mock-proof-data.json";
         let request_headers = [
           { name = "User-Agent"; value = "ICP-Canister-Guarantee" },
         ];
