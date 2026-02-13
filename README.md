@@ -4,7 +4,7 @@
 
 ![Policy Engine Architecture](https://cdn.tradeos.xyz/frontend/policy-engine-arch.png)
 
-At the heart of TradeOS is a collection of smart contracts designed to be 
+At the heart of TradeOS (https://www.tradeos.xyz) is a collection of smart contracts designed to be 
 modular and configurable, allowing different trading scenarios and 
 requirements to plug in without rewriting the entire system. By
 leveraging a fully decentralized architecture, no single entity can
